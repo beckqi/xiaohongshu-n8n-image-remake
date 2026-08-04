@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>绘改 · 海报重构</title>
+  <link rel="stylesheet" href="webui.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/webui.html"><span class="brand-mark">绘</span><span>绘改</span></a>
+      <nav>
+        <a class="nav-item active" href="/webui.html"><span>✦</span> 新建重构</a>
+        <a class="nav-item" id="importLink" href="#import"><span>↗</span> 链接导入</a>
+        <a class="nav-item" id="recentTasks" href="#recent"><span>◷</span> 最近任务</a>
+        <a class="nav-item" href="#templates"><span>▦</span> 我的模板</a>
+      </nav>
+      <div class="side-note"><span></span> n8n 工作台已连接<br><small>图片与密钥仅在本机处理</small></div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div><p class="eyebrow">AI POSTER REMAKE</p><h1>新建海报重构</h1></div>
+        <div class="top-actions"><span class="account-name" id="accountName"></span><button class="ghost" id="settings">API 设置</button><button class="ghost" id="reset">重新开始</button><button class="ghost" id="logout">退出</button></div>
+      </header>
+
+      <section class="stepper" aria-label="处理步骤">
+        <div class="step done"><b>1</b><span>上传参考图</span></div><i></i>
+        <div class="step active"><b>2</b><span>确认内容与方式</span></div><i></i>
+        <div class="step"><b>3</b><span>生成并下载</span></div>
+      </section>
+
+      <div class="workspace">
+        <section class="controls card">
+          <div class="section-heading"><div><p class="number">01</p><h2>参考图片</h2></div><span class="mini-status" id="uploadStatus">等待上传</span></div>
+          <div class="import-tabs" id="importTabs" hidden></div>
+          <label class="upload-zone" id="uploadZone" for="imageFile">
+            <input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp" />
+            <div id="uploadEmpty"><strong>拖入图片，或点击上传</strong><small>支持 JPG、PNG、WEBP，最大 8MB</small></div>
+            <img id="sourceImage" alt="已上传的参考图片" hidden />
+          </label>
+          <div class="quick-settings"><label class="field-label ratio-select">输出图片比例<select id="imageRatio"><option value="source">跟随原图</option><option value="portrait" selected>竖版 2:3</option><option value="square">正方形 1:1</option><option value="landscape">横版 3:2</option></select></label><label class="field-label ratio-select">生成数量<select id="generationCount"><option value="1" selected>1 张（推荐）</option><option value="2">2 张</option><option value="3">3 张</option><option value="4">4 张</option><option value="5">5 张</option><option value="6">6 张</option><option value="7">7 张</option><option value="8">8 张</option><option value="9">9 张</option><option value="10">10 张</option></select><small class="field-help">同批次提交，10 张耗时更长</small></label></div>
+
+          <div class="section-heading mode-title"><div><p class="number">02</p><h2>选择重构方式</h2></div></div>
+          <div class="modes" id="modes">
+            <button class="mode-card selected" data-mode="layout"><span class="mode-icon">T</span><span><strong>保留文案</strong><small>文案不变，AI 自由构图与排版</small></span><em>推荐</em></button>
+            <button class="mode-card" data-mode="rewrite"><span class="mode-icon">✎</span><span><strong>优化文字</strong><small>优化文案后，由 AI 自由设计整张海报</small></span></button>
+            <button class="mode-card" data-mode="rebuild"><span class="mode-icon">✦</span><span><strong>重做视觉配图</strong><small>保留核心信息，AI 自由重做画面与排版</small></span></button>
+            <button class="mode-card" data-mode="free"><span class="mode-icon">✧</span><span><strong>AI 自由发挥</strong><small>AI 自主决定构图、配色、文字与排版</small></span><em>自由</em></button>
+          </div>
+          <div class="similarity-control"><div><p class="number">SIMILARITY</p><strong>目标相似度</strong><small id="similarityHint">数值越高，越贴近参考图的主题和视觉语言</small></div><output id="similarityValue">60%</output><input id="similarityInput" type="range" min="0" max="100" value="60" step="5" /></div>
+
+          <div class="section-heading copy-heading"><div><p class="number">03</p><h2>文案确认</h2><p class="helper">OCR 结果可直接修改；最终文字由程序绘制，不会出现错字。</p></div><button class="text-button" id="demoOcr">模拟识别</button></div>
+          <label class="field-label">主标题<textarea id="titleInput" rows="2">北师大版四上数学</textarea></label>
+          <label class="field-label">副标题<input id="subtitleInput" placeholder="留空则不生成；输入“识别”自动识别" /><small class="field-help">留空：不生成副标题；输入“识别”：从原图自动识别。</small></label>
+          <label class="field-label">卖点 <span class="field-tip">用「｜」分隔</span><input id="benefitsInput" value="全册教案｜课件PPT｜配套练习｜课堂笔记" /></label>
+        </section>
+
+        <section class="preview-panel">
+          <div class="preview-header"><div><p class="number">COMPARE</p><h2>原图 / AI 成图对比</h2></div><span class="ratio">实时预览</span></div>
+          <div class="poster-frame" id="posterFrame">
+            <div class="compare-pane source-pane"><img id="originalPreview" alt="原图预览" hidden /><div class="compare-label">原图</div><div class="source-empty" id="sourceEmpty">上传图片后显示原图</div></div>
+            <div class="compare-pane generated-pane"><img id="posterBg" alt="AI 成图预览" hidden /><div class="ai-preview-placeholder" id="aiPreviewPlaceholder"><span>✦</span><strong>等待 AI 生成真实成图</strong><small>AI 成图将在这里展示</small></div><div class="compare-label">AI 成图</div></div>
+            <div class="poster-copy" hidden>
+              <p class="poster-eyebrow">小学同步学习资料</p>
+              <h3 id="posterTitle">北师大版四上数学</h3>
+              <h4 id="posterSubtitle">全册备课包</h4>
+              <div id="posterBenefits" class="poster-benefits"></div>
+            </div>
+            <div class="poster-badge" id="posterMode" hidden>重新排版</div>
+          </div>
+          <div class="preview-notice"><span>✓</span><p>品牌 Logo、水印和官方认证章不会进入生成结果。</p></div>
+        </section>
+      </div>
+
+      <footer class="actionbar">
+        <div class="generation-note" id="generationNote"><span class="pulse"></span><span>准备就绪。预计生成 30–90 秒。</span></div>
+        <button id="generate" class="generate"><span>生成新海报</span><b>→</b></button>
+      </footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <dialog class="settings-dialog" id="settingsDialog">
+    <form method="dialog" class="settings-card" id="settingsForm">
+      <div class="settings-header"><div><p class="number">LOCAL CONFIGURATION</p><h2>API 设置</h2><p>密钥仅保存到本机 n8n 运行目录，不写入工作流文件。</p></div><button class="close-settings" value="cancel" aria-label="关闭">×</button></div>
+      <div class="settings-grid">
+        <label class="field-label wide">云雾 API Key<input id="yunwuApiKey" type="password" autocomplete="off" placeholder="粘贴云雾 API Key" /></label>
+        <label class="field-label">云雾 Base URL<input id="yunwuBaseUrl" placeholder="https://.../v1" /></label>
+        <label class="field-label">img-2 编辑路径<input id="yunwuImageEditPath" value="/images/edits" /></label>
+        <label class="field-label wide">云雾图像模型<input id="yunwuImageModel" value="gpt-image-2" /></label>
+        <label class="field-label wide">小米 Mimo API Key<input id="mimoApiKey" type="password" autocomplete="off" placeholder="粘贴 Mimo API Key" /></label>
+        <label class="field-label wide">Mimo Base URL<input id="mimoBaseUrl" value="https://token-plan-cn.xiaomimimo.com/v1" /></label>
+      </div>
+      <p class="settings-warning">保存后需重启一次 n8n，新的 Key 才会用于工作流。</p>
+      <div class="settings-footer"><button class="ghost" value="cancel">取消</button><button class="generate" id="saveSettings" value="default"><span>保存本机设置</span><b>→</b></button></div>
+    </form>
+  </dialog>
+  <dialog class="settings-dialog" id="recentDialog">
+    <section class="settings-card recent-card">
+      <div class="settings-header"><div><p class="number">LOCAL HISTORY</p><h2>最近任务</h2><p>仅保存在当前浏览器；下载记录不会上传。</p></div><button class="close-settings" id="closeRecent" aria-label="关闭">×</button></div>
+      <div id="recentList" class="recent-list"></div>
+    </section>
+  </dialog>
+  <dialog class="settings-dialog" id="importDialog">
+    <section class="settings-card import-card">
+      <div class="settings-header"><div><p class="number">LINK IMPORT</p><h2>小红书链接导入</h2><p>读取公开页面中的文案与图片。只导入你拥有或已获授权的内容。</p></div><button class="close-settings" id="closeImport" aria-label="关闭">×</button></div>
+      <div class="import-row"><input id="importUrl" placeholder="粘贴小红书公开链接" /><button class="generate" id="fetchImport"><span>提取内容</span><b>→</b></button></div>
+      <div id="importResult" hidden><label class="field-label">导入标题<input id="importTitle" /></label><label class="field-label">导入文案<textarea id="importDescription" rows="4"></textarea></label><section class="copy-wash"><div class="copy-wash-heading"><div><p class="number">COPY REMIX</p><strong>洗文案</strong><small>保留事实与核心卖点，按目标相似度改写标题和正文</small></div><output id="copySimilarityValue">70%</output></div><input id="copySimilarity" type="range" min="0" max="100" value="70" step="5" /><button class="ghost copy-wash-button" id="washCopy" type="button">生成改写文案</button><div id="washResult" class="wash-result" hidden><label class="field-label">改写标题<input id="washedTitle" /></label><label class="field-label">改写文案<textarea id="washedDescription" rows="5"></textarea></label><button class="ghost" id="downloadCopyTxt" type="button">下载 TXT</button></div></section><p class="number import-caption">选择要带入工作台的图片</p><div class="import-grid" id="importGrid"></div><button class="generate import-queue" id="queueImport"><span>带入工作台</span><b>→</b></button></div>
+      <p class="import-status" id="importStatus"></p>
+    </section>
+  </dialog>
+  <script src="webui.js"></script>
+  <script src="link-import.js"></script>
+</body>
+</html>
