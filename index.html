@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>灵感重构 · 小红书出图</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand"><span>◒</span> 灵感重构</div>
+      <p>把你的内容，做成一张新的小红书封面</p>
+    </header>
+
+    <section class="notice">仅上传你拥有使用权的素材。系统会重做视觉表达与版式，不提供去水印、仿制特定作者或规避平台审核的功能。</section>
+
+    <section class="workspace">
+      <aside class="controls">
+        <div class="step"><span>01</span><h2>上传参考图</h2></div>
+        <label class="upload" for="fileInput"><input id="fileInput" type="file" accept="image/*" /><strong>选择图片</strong><small>PNG、JPG 均可</small></label>
+        <img id="sourcePreview" class="source-preview hidden" alt="参考图片预览" />
+
+        <div class="step"><span>02</span><h2>确认文案</h2></div>
+        <p class="hint">一期由你粘贴或修正文案；接入 n8n 后这里将自动填充 OCR 结果。</p>
+        <label>主标题<textarea id="title" maxlength="30">学会这 3 招，效率翻倍</textarea></label>
+        <label>补充说明<textarea id="body" maxlength="80">不靠熬夜，也能把事情做得又快又好</textarea></label>
+        <label>标签（用 · 分隔）<input id="tags" value="效率提升 · 自我成长 · 实用技巧" /></label>
+
+        <div class="step"><span>03</span><h2>选一种新视觉</h2></div>
+        <div class="styles" id="styles">
+          <button class="style active" data-style="paper"><i></i>手帐纸感</button>
+          <button class="style" data-style="night"><i></i>夜色极简</button>
+          <button class="style" data-style="pop"><i></i>元气拼贴</button>
+        </div>
+        <button id="generate" class="primary">生成新排版</button>
+      </aside>
+
+      <section class="result">
+        <div class="result-bar"><span>预览画布 · 3:4</span><button id="download" disabled>下载 PNG</button></div>
+        <div class="canvas-wrap"><canvas id="poster" width="1242" height="1660"></canvas></div>
+      </section>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
