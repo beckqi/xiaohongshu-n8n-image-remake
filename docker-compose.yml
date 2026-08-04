@@ -1,0 +1,48 @@
+services:
+  app:
+    build: .
+    ports:
+      - "4173:4173"
+    env_file: .env
+    environment:
+      - PORT=4173
+      - COOKIE_SECURE=true
+      - N8N_APP_WEBHOOK_URL=http://n8n:5678/webhook/poster-remake
+      - OCR_SERVICE_URL=http://ocr:8000
+      - IMAGE_WORKER_URL=http://image-worker:8001
+      - RUNTIME_ENV_PATH=/app/data/runtime.env
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      - n8n
+      - ocr
+      - image-worker
+
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    env_file: .env
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+      - GENERIC_TIMEZONE=Asia/Shanghai
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - ocr
+      - image-worker
+
+  ocr:
+    build: ./services/ocr
+    environment:
+      - OCR_LANG=ch
+
+  image-worker:
+    build: ./services/image-worker
+
+volumes:
+  n8n_data:
+  app_data:
