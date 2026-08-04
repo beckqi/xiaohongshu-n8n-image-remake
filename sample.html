@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>识图重绘样张</title>
+<style>
+  *{box-sizing:border-box} body{margin:0;background:#eae7df;font-family:"Microsoft YaHei","Noto Sans SC",sans-serif}
+  .poster{position:relative;width:min(100vw,768px);aspect-ratio:3/4;margin:auto;overflow:hidden;background:#f8f3e9}
+  .poster>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .type{position:absolute;z-index:1;text-align:center;color:#111;text-shadow:0 2px 0 #fff}
+  .book{top:5%;right:7%;font-size:2.1vw;letter-spacing:.35em;font-family:serif}.en{top:11%;right:11%;font-size:3.2vw;letter-spacing:.15em;color:#ce8a19}.math{top:16%;right:10%;font-size:9vw;font-weight:900;letter-spacing:.13em}
+  .year{top:24%;left:5%;font-size:6vw;font-weight:900;color:#111}.year b{color:#f28c19}.level{top:31%;left:35%;border:2px solid #b99755;border-radius:12px;padding:.3vw 2vw;font-size:2vw;color:#514429;background:#fff9e9}
+  .headline{top:38%;left:3%;right:3%;font-size:5.7vw;font-weight:900;line-height:1.15;color:#ff9a16;-webkit-text-stroke:.6vw #17120e;paint-order:stroke fill;text-shadow:0 .5vw 0 #fff}
+  .sub{top:50%;left:13%;right:13%;font-size:5.2vw;font-weight:900;line-height:1.15;color:#bff2ff;-webkit-text-stroke:.55vw #111;paint-order:stroke fill;text-shadow:0 .4vw 0 #fff}
+  .check{display:grid;grid-template-columns:1fr 1fr;gap:1vw;left:4%;right:4%;bottom:5%;font-weight:900;font-size:4vw;color:#fff;-webkit-text-stroke:.5vw #111;paint-order:stroke fill;text-align:left}.check span:before{content:'✓';display:inline-grid;place-items:center;width:4vw;height:4vw;margin-right:1vw;border-radius:20%;background:#34c94a;color:#fff;-webkit-text-stroke:0;font-size:3vw;line-height:1;box-shadow:0 0 0 .4vw #fff,0 0 0 .7vw #111}.check span{white-space:nowrap}
+  @media(max-width:768px){.book{font-size:3vw}.en{font-size:5vw}.math{font-size:13vw}.year{font-size:9vw}.level{font-size:3vw}.headline{font-size:8vw}.sub{font-size:7vw}.check{font-size:5.6vw}.check span:before{width:5.6vw;height:5.6vw;font-size:4.2vw}}
+</style>
+<main class="poster">
+  <img src="assets/winter-math-background.png" alt="重新生成的冬季数学学习插画" />
+  <div class="type book">义务教育教科书</div><div class="type en">SHUXUE</div><div class="type math">数学</div>
+  <div class="type year"><b>2026</b>秋版</div><div class="type level">四年级｜上册</div>
+  <div class="type headline">北师大版四上数学</div><div class="type sub">全册备课包</div>
+  <div class="type check"><span>全册教案</span><span>课件PPT</span><span>配套练习</span><span>课堂笔记</span></div>
+</main>
