@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>登录｜绘改</title>
+  <link rel="stylesheet" href="login.css" />
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="auth-intro">
+      <a class="brand" href="login.html"><span>绘</span>绘改</a>
+      <div class="intro-copy"><p class="eyebrow">POSTER REWORKSPACE</p><h1>把灵感，<br />变成你的下一张海报。</h1><p>上传参考图，保留关键信息，以自己的节奏完成重构、文案优化和批量创作。</p></div>
+      <div class="feature-list"><span>✦ 图文智能重构</span><span>✦ 链接导入与文案改写</span><span>✦ 本地安全保存你的配置</span></div>
+    </section>
+    <section class="auth-panel">
+      <div class="auth-card">
+        <p class="eyebrow">WELCOME</p><h2 id="authTitle">欢迎回来</h2><p class="auth-subtitle" id="authSubtitle">登录后继续使用你的创作工作台。</p><p class="security-note"><span>✓</span> 安全保护已开启：异常访问会被自动限制</p>
+        <div class="tabs" role="tablist"><button class="tab active" data-mode="login" type="button">登录</button><button class="tab" data-mode="register" type="button">创建账号</button></div>
+        <form id="authForm"><label>账号<input id="username" autocomplete="username" placeholder="3–24 位账号" required /></label><label>密码<input id="password" type="password" autocomplete="current-password" placeholder="至少 8 位密码" required /></label><button class="submit" id="authSubmit" type="submit"><span>登录工作台</span><b>→</b></button></form>
+        <p class="auth-message" id="authMessage" aria-live="polite"></p>
+        <p class="auth-footnote">账号数据仅用于访问本工具。部署云端时，请配置 HTTPS 与安全的环境变量。</p>
+      </div>
+    </section>
+  </main>
+  <script src="login.js"></script>
+</body>
+</html>
