@@ -1,0 +1,18 @@
+# Secrets and local runtime state
+.env
+.env.*
+!.env.example
+data/
+
+# Dependencies and generated files
+node_modules/
+__pycache__/
+*.py[cod]
+output/
+.snapshots/
+
+# Editor and operating-system files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
