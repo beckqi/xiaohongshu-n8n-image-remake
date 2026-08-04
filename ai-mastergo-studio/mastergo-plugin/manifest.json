@@ -1,0 +1,8 @@
+{
+  "name": "AI MasterGo Studio 导入器",
+  "id": "",
+  "api": "1.0.0",
+  "main": "./main.js",
+  "ui": "./ui.html",
+  "menu": [{ "name": "导入 AI 设计任务", "command": "import" }]
+}
