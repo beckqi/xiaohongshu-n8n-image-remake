@@ -1,8 +1,0 @@
-.git
-node_modules
-.env
-data
-output
-.snapshots
-*.pyc
-__pycache__

@@ -1,3 +1,4 @@
+
 import { createServer } from 'node:http';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, dirname } from 'node:path';
@@ -11,6 +12,7 @@ const runtimeEnvPath = process.env.RUNTIME_ENV_PATH || join(root, 'data', 'runti
 const ocrServiceUrl = process.env.OCR_SERVICE_URL || 'http://127.0.0.1:8000';
 const imageWorkerUrl = process.env.IMAGE_WORKER_URL || 'http://127.0.0.1:8001';
 const usersPath = join(root, 'data', 'users.json');
+const historyDirectory = join(root, 'data', 'history');
 const sessions = new Map();
 const loginAttempts = new Map();
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8' };
@@ -45,11 +47,30 @@ function mask(value) {
   return value ? `已保存（末尾 ${value.slice(-4)}）` : '';
 }
 
+function imageApiBase(env) {
+  let base = String(env.YUNWU_BASE_URL || '').replace(/\/$/, '');
+  try {
+    const parsed = new URL(base);
+    if (parsed.hostname === 'api.lk888.ai' && !parsed.pathname.replace(/\/$/, '').endsWith('/v1')) base += '/v1';
+  } catch { /* Keep the configured value so the provider can return a clear error. */ }
+  return base;
+}
+
+async function ensureLingkeBalance(env) {
+  const base = imageApiBase(env);
+  if (!base.includes('api.lk888.ai')) return;
+  const response = await fetch(`${base}/skills/balance`, { headers: { authorization: `Bearer ${env.YUNWU_API_KEY}` } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error?.message || '灵境余额查询失败');
+  if (Number(data.balance) <= 0) throw new Error('灵境算力余额不足，请先充值');
+}
+
 function readCookies(req) { return Object.fromEntries(String(req.headers.cookie || '').split(';').map(part => part.trim().split('=').map(decodeURIComponent)).filter(([key]) => key)); }
 function hashPassword(password, salt = randomBytes(16).toString('hex')) { return `${salt}:${scryptSync(password, salt, 64).toString('hex')}`; }
 function verifyPassword(password, encoded) { const [salt, expected] = String(encoded || '').split(':'); if (!salt || !expected) return false; const actual = scryptSync(password, salt, 64); return actual.length === Buffer.from(expected, 'hex').length && timingSafeEqual(actual, Buffer.from(expected, 'hex')); }
 async function loadUsers() { try { return JSON.parse(await readFile(usersPath, 'utf8')); } catch { return []; } }
 async function saveUsers(users) { await mkdir(dirname(usersPath), { recursive: true }); await writeFile(usersPath, JSON.stringify(users, null, 2), 'utf8'); }
+async function saveGeneratedImage(image) { const name = `${Date.now()}-${randomBytes(8).toString('hex')}.png`; await mkdir(historyDirectory, { recursive: true }); await writeFile(join(historyDirectory, name), image); return `/api/history/${name}`; }
 function currentUser(req) { const token = readCookies(req).om_session; const session = token && sessions.get(token); if (!session || session.expires < Date.now()) { if (token) sessions.delete(token); return null; } return session.user; }
 function setSession(res, username) { const token = randomBytes(32).toString('hex'); sessions.set(token, { user: { username }, expires: Date.now() + 7 * 24 * 60 * 60 * 1000 }); const secure = process.env.COOKIE_SECURE === 'true' ? '; Secure' : ''; res.setHeader('set-cookie', `om_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800${secure}`); }
 function clearSession(req, res) { const token = readCookies(req).om_session; if (token) sessions.delete(token); res.setHeader('set-cookie', 'om_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'); }
@@ -91,7 +112,8 @@ async function loadRuntimeEnv() {
 
 async function createYunwuBackground(payload, env) {
   const match = String(payload.imageData || '').match(/^data:(image\/[\w.+-]+);base64,(.+)$/);
-  if (!match || !env.YUNWU_API_KEY || !env.YUNWU_BASE_URL) throw new Error('云雾图像设置未完成');
+  if (!match || !env.YUNWU_API_KEY || !env.YUNWU_BASE_URL) throw new Error('灵境图像设置未完成');
+  await ensureLingkeBalance(env);
   const copy = payload.copy || {};
   const similarity = Math.min(100, Math.max(0, Number(payload.similarity ?? 60)));
   const generationCount = Math.min(10, Math.max(1, Math.round(Number(payload.generationCount ?? 1))));
@@ -121,17 +143,18 @@ async function createYunwuBackground(payload, env) {
     form.append('model', env.YUNWU_IMAGE_MODEL || 'gpt-image-2');
     form.append('n', String(generationCount));
     form.append('size', outputSize);
-    const endpoint = `${env.YUNWU_BASE_URL.replace(/\/$/, '')}${env.YUNWU_IMAGE_EDIT_PATH || '/images/edits'}`;
+    form.append('quality', 'auto');
+    const endpoint = `${imageApiBase(env)}${env.YUNWU_IMAGE_EDIT_PATH || '/images/edits'}`;
     const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form });
     const data = await response.json();
-    if (!response.ok) throw new Error(data?.error?.message || '云雾图像生成失败');
+    if (!response.ok) throw new Error(data?.error?.message || '灵境图像生成失败');
     const items = Array.isArray(data.data) ? data.data : [data.data];
     const images = items.map(item => item?.b64_json ? `data:image/png;base64,${item.b64_json}` : item?.url).filter(Boolean);
     if (generationCount > 1 && images.length) return images;
     const item = items[0];
     if (item?.b64_json) return `data:image/png;base64,${item.b64_json}`;
     if (item?.url) return item.url;
-    throw new Error('云雾未返回图片数据');
+    throw new Error('灵境未返回图片数据');
   }
   const modeHint = payload.mode === 'rebuild'
     ? '重新设计场景、构图、主色与装饰元素，使视觉风格明显不同。'
@@ -143,14 +166,15 @@ async function createYunwuBackground(payload, env) {
   form.append('model', env.YUNWU_IMAGE_MODEL || 'gpt-image-2');
   form.append('n', '1');
   form.append('size', '1024x1536');
-  const endpoint = `${env.YUNWU_BASE_URL.replace(/\/$/, '')}${env.YUNWU_IMAGE_EDIT_PATH || '/images/edits'}`;
+  form.append('quality', 'auto');
+  const endpoint = `${imageApiBase(env)}${env.YUNWU_IMAGE_EDIT_PATH || '/images/edits'}`;
   const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form });
   const data = await response.json();
-  if (!response.ok) throw new Error(data?.error?.message || '云雾图像生成失败');
+  if (!response.ok) throw new Error(data?.error?.message || '灵境图像生成失败');
   const item = Array.isArray(data.data) ? data.data[0] : data.data;
   if (item?.b64_json) return `data:image/png;base64,${item.b64_json}`;
   if (item?.url) return item.url;
-  throw new Error('云雾未返回图片数据');
+  throw new Error('灵境未返回图片数据');
 }
 
 async function washImportedCopy(payload, env) {
@@ -219,6 +243,12 @@ createServer(async (req, res) => {
   if (!currentUser(req)) {
     if (url.pathname.startsWith('/api/')) return json(res, 401, { error: '登录已失效，请重新登录' });
     if (!publicFiles.has(url.pathname)) { res.writeHead(302, { location: '/login.html' }); return res.end(); }
+  }
+  if (req.method === 'GET' && url.pathname.startsWith('/api/history/')) {
+    const name = url.pathname.slice('/api/history/'.length);
+    if (!/^[a-z0-9-]+\.png$/i.test(name)) return json(res, 400, { error: '无效的历史文件' });
+    try { const image = await readFile(join(historyDirectory, name)); res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=31536000, immutable' }); return res.end(image); }
+    catch { return json(res, 404, { error: '历史文件不存在' }); }
   }
   if (req.method === 'GET' && url.pathname === '/api/settings') {
     const env = await loadRuntimeEnv();
@@ -306,8 +336,8 @@ createServer(async (req, res) => {
       });
       if (!result.ok) throw new Error('本机排版服务未就绪');
       const image = Buffer.from(await result.arrayBuffer());
-      res.writeHead(200, { 'content-type': 'image/png', 'content-disposition': 'attachment; filename="remade-poster.png"', 'x-render-source': source });
-      res.end(image);
+      const imageUrl = await saveGeneratedImage(image);
+      return json(res, 200, { images: [imageUrl], source });
     };
     try {
       const body = await readBody(req);
@@ -316,17 +346,22 @@ createServer(async (req, res) => {
       if (env.YUNWU_API_KEY && env.YUNWU_BASE_URL) {
         try {
           const background = await createYunwuBackground(rebuildPayload, env);
-          if (Array.isArray(background)) return json(res, 200, { images: background });
+          if (Array.isArray(background)) {
+            const images = await Promise.all(background.map(async item => {
+              const image = item.startsWith('data:image') ? Buffer.from(item.split(',', 2)[1], 'base64') : Buffer.from(await (await fetch(item)).arrayBuffer());
+              return saveGeneratedImage(image);
+            }));
+            return json(res, 200, { images });
+          }
           if (['layout', 'rewrite', 'rebuild', 'free'].includes(rebuildPayload.mode)) {
             const image = background.startsWith('data:image')
               ? Buffer.from(background.split(',', 2)[1], 'base64')
               : Buffer.from(await (await fetch(background)).arrayBuffer());
-            res.writeHead(200, { 'content-type': 'image/png', 'content-disposition': 'attachment; filename="ai-free-poster.png"', 'x-render-source': 'yunwu-gpt-image-2-free' });
-            return res.end(image);
+            return json(res, 200, { images: [await saveGeneratedImage(image)], source: 'lingke-gpt-image-2' });
           }
           return await localRender(rebuildPayload, background, 'yunwu-gpt-image-2');
         } catch (error) {
-          return json(res, 502, { error: `云雾生成失败：${error.message || '请检查模型与余额'}` });
+          return json(res, 502, { error: `灵境生成失败：${error.message || '请检查模型、余额或网络'}` });
         }
       }
       const result = await fetch(n8nWebhookUrl, {

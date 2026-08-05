@@ -1,3 +1,4 @@
+
 const auth = { form: document.querySelector('#authForm'), tabs: document.querySelectorAll('.tab'), title: document.querySelector('#authTitle'), subtitle: document.querySelector('#authSubtitle'), username: document.querySelector('#username'), password: document.querySelector('#password'), submit: document.querySelector('#authSubmit'), message: document.querySelector('#authMessage') };
 let mode = 'login';
 const copy = { login: ['欢迎回来', '登录后继续使用你的创作工作台。', '登录工作台'], register: ['创建你的账号', '注册后即可进入海报重构工作台。', '创建并进入'] };

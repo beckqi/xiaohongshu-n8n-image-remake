@@ -1,3 +1,4 @@
+
 const linkImport = {
   open: document.querySelector('#importLink'), dialog: document.querySelector('#importDialog'), close: document.querySelector('#closeImport'), url: document.querySelector('#importUrl'), fetch: document.querySelector('#fetchImport'),
   result: document.querySelector('#importResult'), title: document.querySelector('#importTitle'), description: document.querySelector('#importDescription'), grid: document.querySelector('#importGrid'), queue: document.querySelector('#queueImport'), status: document.querySelector('#importStatus'),
@@ -8,6 +9,7 @@ let importedImages = [];
 let workspaceImportItems = [];
 let activeImportIndex = 0;
 let applyingImportedItem = false;
+let linkProject = null;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function setImportStatus(message) { linkImport.status.textContent = message; }
@@ -21,13 +23,14 @@ linkImport.copySimilarity.addEventListener('input', () => { linkImport.copySimil
 linkImport.wash.addEventListener('click', async () => {
   const title = linkImport.title.value.trim(); const description = linkImport.description.value.trim();
   if (!title && !description) return setImportStatus('请先提取或填写标题、文案');
+  const project=linkProject||{id:`project-${Date.now()}`,title:title||'链接导入项目'};linkProject=project;const copyTaskId=`copy-${Date.now()}`;window.saveProjectTask?.({id:copyTaskId,projectId:project.id,projectTitle:project.title,title,mode:'文案改写',time:new Date().toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}),status:'生成中'});
   linkImport.wash.classList.add('loading'); linkImport.wash.textContent = '正在生成改写文案…'; setImportStatus('Mimo 正在按目标相似度改写文案…');
   try {
     const response = await fetch('/api/wash-copy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, description, similarity: Number(linkImport.copySimilarity.value) }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '文案生成失败');
-    linkImport.washedTitle.value = data.title || ''; linkImport.washedDescription.value = data.description || ''; linkImport.washResult.hidden = false;
+    linkImport.washedTitle.value = data.title || ''; linkImport.washedDescription.value = data.description || ''; linkImport.washResult.hidden = false;window.updateProjectTask?.(copyTaskId,{status:'已完成'});
     setImportStatus(`已生成改写文案（目标相似度 ${data.similarity}%），可编辑后下载 TXT。`);
-  } catch (error) { setImportStatus(error.message || '文案生成失败'); }
+  } catch (error) { window.updateProjectTask?.(copyTaskId,{status:'生成失败'});setImportStatus(error.message || '文案生成失败'); }
   finally { linkImport.wash.classList.remove('loading'); linkImport.wash.textContent = '生成改写文案'; }
 });
 linkImport.downloadCopy.addEventListener('click', () => {
@@ -45,7 +48,7 @@ linkImport.fetch.addEventListener('click', async () => {
   try {
     const response = await fetch('/api/import-link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ link }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || '提取失败');
-    importedImages = data.images; linkImport.title.value = data.title || ''; linkImport.description.value = data.description || ''; linkImport.washResult.hidden = true; drawImportedImages(); linkImport.result.hidden = false; setImportStatus(`已提取 ${importedImages.length} 张图片，勾选后可加入队列。`);
+    importedImages = data.images; linkImport.title.value = data.title || ''; linkImport.description.value = data.description || ''; linkProject={id:`project-${Date.now()}`,title:data.title||`链接导入项目 ${new Date().toLocaleDateString('zh-CN')}`}; linkImport.washResult.hidden = true; drawImportedImages(); linkImport.result.hidden = false; setImportStatus(`已提取 ${importedImages.length} 张图片，勾选后可加入队列。`);
   } catch (error) { setImportStatus(error.message || '提取失败'); }
   finally { linkImport.fetch.classList.remove('loading'); }
 });
@@ -112,12 +115,12 @@ linkImport.queue.addEventListener('click', async () => {
   linkImport.queue.classList.add('loading');
   const title = linkImport.title.value.trim(); const description = linkImport.description.value.trim();
   try {
-    const items = [];
+    const items = []; const projectId = linkProject?.id || `project-${Date.now()}`; const projectTitle = linkProject?.title || title || `链接导入项目 ${new Date().toLocaleDateString('zh-CN')}`;
     for (let index = 0; index < selected.length; index++) {
       setImportStatus(`正在带入图片 ${index + 1}/${selected.length}…`);
       const response = await fetch(`/api/import-image?url=${encodeURIComponent(selected[index])}`); if (!response.ok) throw new Error(`第 ${index + 1} 张图片下载失败`);
       const blob = await response.blob(); const file = new File([blob], `小红书导入-${index + 1}.jpg`, { type: blob.type || 'image/jpeg' });
-      items.push({ file, preview: URL.createObjectURL(file), title, description, similarity: Number(ui.similarity.value) });
+      items.push({ file, preview: URL.createObjectURL(file), title, description, similarity: Number(ui.similarity.value), projectId, projectTitle });
     }
     workspaceImportItems = items; activeImportIndex = 0; linkImport.dialog.close(); loadImportedItem(0);
   } catch (error) { setImportStatus(error.message || '图片带入失败'); }

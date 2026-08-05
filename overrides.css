@@ -1,0 +1,18 @@
+
+/* Responsive fixes layered over the original compact stylesheet. */
+.settings-dialog:has(.import-card) {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.import-card {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.import-card .import-queue {
+  position: sticky;
+  bottom: 0;
+}
+.recent-page{width:min(820px,calc(100vw - 32px));margin:auto;padding:42px 0}.recent-page h1{margin:0;font-size:30px}.recent-page-header{margin:28px 0}.project-list{display:grid;gap:10px}.project-card,.project-task{display:flex;align-items:center;gap:12px;width:100%;padding:15px;border:1px solid #e7e4dc;border-radius:11px;background:#fff;text-align:left}.project-card{cursor:pointer}.project-card:hover{border-color:#ff6c43}.project-card>b,.project-task>b{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#fff1eb;color:#ff6c43}.project-card strong,.project-card small,.project-task strong,.project-task small{display:block}.project-card small,.project-task small{margin-top:3px;color:#77736b;font-size:11px}.project-card i,.project-task em{margin-left:auto;font-style:normal}.project-detail h2{margin:24px 0 5px}.project-detail>p{color:#77736b}.project-task{margin-top:9px}.project-task em{color:#4c8b2b;font-size:12px}

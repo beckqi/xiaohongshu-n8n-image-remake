@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -5,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>绘改 · 海报重构</title>
   <link rel="stylesheet" href="webui.css" />
+  <link rel="stylesheet" href="overrides.css" />
 </head>
 <body>
   <div class="app-shell">
@@ -13,7 +15,7 @@
       <nav>
         <a class="nav-item active" href="/webui.html"><span>✦</span> 新建重构</a>
         <a class="nav-item" id="importLink" href="#import"><span>↗</span> 链接导入</a>
-        <a class="nav-item" id="recentTasks" href="#recent"><span>◷</span> 最近任务</a>
+        <a class="nav-item" href="/recent.html"><span>◷</span> 最近任务</a>
         <a class="nav-item" href="#templates"><span>▦</span> 我的模板</a>
       </nav>
       <div class="side-note"><span></span> n8n 工作台已连接<br><small>图片与密钥仅在本机处理</small></div>
@@ -54,7 +56,7 @@
           <div class="section-heading copy-heading"><div><p class="number">03</p><h2>文案确认</h2><p class="helper">OCR 结果可直接修改；最终文字由程序绘制，不会出现错字。</p></div><button class="text-button" id="demoOcr">模拟识别</button></div>
           <label class="field-label">主标题<textarea id="titleInput" rows="2">北师大版四上数学</textarea></label>
           <label class="field-label">副标题<input id="subtitleInput" placeholder="留空则不生成；输入“识别”自动识别" /><small class="field-help">留空：不生成副标题；输入“识别”：从原图自动识别。</small></label>
-          <label class="field-label">卖点 <span class="field-tip">用「｜」分隔</span><input id="benefitsInput" value="全册教案｜课件PPT｜配套练习｜课堂笔记" /></label>
+          <label class="field-label">卖点 <span class="field-tip">每行一个，或用「｜」分隔</span><textarea id="benefitsInput" class="benefits-input" rows="4">全册教案｜课件PPT｜配套练习｜课堂笔记</textarea></label>
         </section>
 
         <section class="preview-panel">
@@ -85,10 +87,10 @@
     <form method="dialog" class="settings-card" id="settingsForm">
       <div class="settings-header"><div><p class="number">LOCAL CONFIGURATION</p><h2>API 设置</h2><p>密钥仅保存到本机 n8n 运行目录，不写入工作流文件。</p></div><button class="close-settings" value="cancel" aria-label="关闭">×</button></div>
       <div class="settings-grid">
-        <label class="field-label wide">云雾 API Key<input id="yunwuApiKey" type="password" autocomplete="off" placeholder="粘贴云雾 API Key" /></label>
-        <label class="field-label">云雾 Base URL<input id="yunwuBaseUrl" placeholder="https://.../v1" /></label>
-        <label class="field-label">img-2 编辑路径<input id="yunwuImageEditPath" value="/images/edits" /></label>
-        <label class="field-label wide">云雾图像模型<input id="yunwuImageModel" value="gpt-image-2" /></label>
+        <label class="field-label wide">灵境 API Key<input id="yunwuApiKey" type="password" autocomplete="off" placeholder="粘贴灵境 API Key" /></label>
+        <label class="field-label">灵境 Base URL<input id="yunwuBaseUrl" value="https://api.lk888.ai/api/v1" /></label>
+        <label class="field-label">GPT Image 2 编辑路径<input id="yunwuImageEditPath" value="/images/edits" /></label>
+        <label class="field-label wide">灵境图像模型<input id="yunwuImageModel" value="gpt-image-2" /></label>
         <label class="field-label wide">小米 Mimo API Key<input id="mimoApiKey" type="password" autocomplete="off" placeholder="粘贴 Mimo API Key" /></label>
         <label class="field-label wide">Mimo Base URL<input id="mimoBaseUrl" value="https://token-plan-cn.xiaomimimo.com/v1" /></label>
       </div>
@@ -110,6 +112,7 @@
       <p class="import-status" id="importStatus"></p>
     </section>
   </dialog>
+  <script src="project-download.js"></script>
   <script src="webui.js"></script>
   <script src="link-import.js"></script>
 </body>
