@@ -26,6 +26,7 @@ function toast(message){ui.toast.textContent=message;ui.toast.classList.add('sho
 const ratioMap={source:'3 / 4',portrait:'2 / 3',square:'1 / 1',landscape:'3 / 2'};
 function setPreviewRatio(){ui.frame.style.setProperty('--preview-ratio',ratioMap[ui.ratio.value]||'2 / 3');}
 function getRecentTasks(){try{const tasks=JSON.parse(localStorage.getItem('poster-remake-recent')||'[]');const normalized=tasks.map(task=>task.url&&task.status==='生成中'?{...task,status:'已完成'}:task);if(JSON.stringify(tasks)!==JSON.stringify(normalized))localStorage.setItem('poster-remake-recent',JSON.stringify(normalized));return normalized}catch{return[]}}
+async function recoverCompletedTasks(){const pending=getRecentTasks().filter(task=>task.status==='生成中'&&/^task-(\d+)$/.test(task.id));for(const task of pending){try{const since=Number(task.id.slice(5));const response=await fetch(`/api/history-latest?since=${since}`);const data=await response.json();if(data.url)updateRecentTask(task.id,{status:'已完成',url:data.url,fileName:'已生成图片'});}catch{}}}
 function saveRecentTask(task){const tasks=[task,...getRecentTasks()].slice(0,12);localStorage.setItem('poster-remake-recent',JSON.stringify(tasks));}
 function updateRecentTask(id, changes){const tasks=getRecentTasks().map(task=>task.id===id?{...task,...changes}:task);localStorage.setItem('poster-remake-recent',JSON.stringify(tasks));}
 window.saveProjectTask=saveRecentTask;window.updateProjectTask=updateRecentTask;
@@ -115,4 +116,4 @@ ui.generate.addEventListener('click',async()=>{
   }catch(error){if(importedItem)importedItem.generationStatus='生成失败';updateRecentTask(taskId,{status:'生成失败'});toast(error.message || 'n8n 尚未完成连接配置');}
   finally{if(importedItem){window.refreshImportedGenerationUI?.();}else{ui.generate.classList.remove('loading');ui.generate.querySelector('span').textContent='生成新海报';ui.note.lastElementChild.textContent='准备就绪。预计生成 30–90 秒。';}}
 });
-setPreviewRatio();renderPreview();
+setPreviewRatio();renderPreview();recoverCompletedTasks();
