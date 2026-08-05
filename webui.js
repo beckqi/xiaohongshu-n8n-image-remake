@@ -25,7 +25,7 @@ function renderPreview(){
 function toast(message){ui.toast.textContent=message;ui.toast.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>ui.toast.classList.remove('show'),2600)}
 const ratioMap={source:'3 / 4',portrait:'2 / 3',square:'1 / 1',landscape:'3 / 2'};
 function setPreviewRatio(){ui.frame.style.setProperty('--preview-ratio',ratioMap[ui.ratio.value]||'2 / 3');}
-function getRecentTasks(){try{return JSON.parse(localStorage.getItem('poster-remake-recent')||'[]')}catch{return[]}}
+function getRecentTasks(){try{const tasks=JSON.parse(localStorage.getItem('poster-remake-recent')||'[]');const normalized=tasks.map(task=>task.url&&task.status==='生成中'?{...task,status:'已完成'}:task);if(JSON.stringify(tasks)!==JSON.stringify(normalized))localStorage.setItem('poster-remake-recent',JSON.stringify(normalized));return normalized}catch{return[]}}
 function saveRecentTask(task){const tasks=[task,...getRecentTasks()].slice(0,12);localStorage.setItem('poster-remake-recent',JSON.stringify(tasks));}
 function updateRecentTask(id, changes){const tasks=getRecentTasks().map(task=>task.id===id?{...task,...changes}:task);localStorage.setItem('poster-remake-recent',JSON.stringify(tasks));}
 window.saveProjectTask=saveRecentTask;window.updateProjectTask=updateRecentTask;
