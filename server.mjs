@@ -1,6 +1,6 @@
 
 import { createServer } from 'node:http';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
@@ -249,6 +249,15 @@ createServer(async (req, res) => {
     if (!/^[a-z0-9-]+\.png$/i.test(name)) return json(res, 400, { error: '无效的历史文件' });
     try { const image = await readFile(join(historyDirectory, name)); res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=31536000, immutable' }); return res.end(image); }
     catch { return json(res, 404, { error: '历史文件不存在' }); }
+  }
+  if (req.method === 'GET' && url.pathname === '/api/history-latest') {
+    try {
+      const since = Number(url.searchParams.get('since') || 0);
+      const files = (await readdir(historyDirectory)).filter(name => /^[a-z0-9-]+\.png$/i.test(name));
+      const found = await Promise.all(files.map(async name => ({ name, info: await stat(join(historyDirectory, name)) })));
+      const latest = found.filter(item => item.info.mtimeMs >= since).sort((a, b) => b.info.mtimeMs - a.info.mtimeMs)[0];
+      return json(res, 200, latest ? { url: `/api/history/${latest.name}`, createdAt: latest.info.mtimeMs } : { url: null });
+    } catch { return json(res, 200, { url: null }); }
   }
   if (req.method === 'GET' && url.pathname === '/api/settings') {
     const env = await loadRuntimeEnv();
