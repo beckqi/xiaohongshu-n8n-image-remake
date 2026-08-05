@@ -1,4 +1,3 @@
-
 import { createServer } from 'node:http';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, dirname } from 'node:path';
@@ -13,9 +12,39 @@ const ocrServiceUrl = process.env.OCR_SERVICE_URL || 'http://127.0.0.1:8000';
 const imageWorkerUrl = process.env.IMAGE_WORKER_URL || 'http://127.0.0.1:8001';
 const usersPath = join(root, 'data', 'users.json');
 const historyDirectory = join(root, 'data', 'history');
+const taskStatePath = join(root, 'data', 'generation-tasks.json');
 const sessions = new Map();
 const loginAttempts = new Map();
+const generationTasks = new Map();
+let taskWriteQueue = Promise.resolve();
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8' };
+
+function persistGenerationTasks() {
+  taskWriteQueue = taskWriteQueue.catch(() => {}).then(async () => {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const entries = [...generationTasks.entries()].filter(([, task]) => Number(task.createdAt || 0) >= cutoff).slice(-200);
+    await mkdir(dirname(taskStatePath), { recursive: true });
+    await writeFile(taskStatePath, JSON.stringify(entries, null, 2), 'utf8');
+  });
+  return taskWriteQueue;
+}
+
+function setGenerationTask(id, task) {
+  generationTasks.set(id, { ...task, updatedAt: Date.now() });
+  persistGenerationTasks();
+}
+
+async function restoreGenerationTasks() {
+  try {
+    const entries = JSON.parse(await readFile(taskStatePath, 'utf8'));
+    for (const [id, task] of Array.isArray(entries) ? entries : []) {
+      generationTasks.set(id, task.status === 'processing' ? { ...task, status: 'failed', error: '服务重启导致任务中断，请重新生成', updatedAt: Date.now() } : task);
+    }
+    await persistGenerationTasks();
+  } catch { /* 首次启动时还没有任务状态文件 */ }
+}
+
+await restoreGenerationTasks();
 
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -65,6 +94,24 @@ async function ensureLingkeBalance(env) {
   if (Number(data.balance) <= 0) throw new Error('灵境算力余额不足，请先充值');
 }
 
+async function waitLingkeTask(taskId, env, onProgress = () => {}) {
+  const base = imageApiBase(env);
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const response = await fetch(`${base}/skills/task-status?task_id=${encodeURIComponent(taskId)}`, { headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, signal: AbortSignal.timeout(30000) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error?.message || '灵境任务状态查询失败');
+    const state = String(data.state || data.status || '').toLowerCase();
+    const progress = data.progress ?? data.data?.progress ?? data.result?.progress;
+    onProgress({ progress: Number.isFinite(Number(progress)) ? Number(progress) : null, message: data.message || data.state || data.status || '灵境处理中' });
+    if (data.is_final || ['success', 'succeeded', 'completed', 'failed', 'error'].includes(state)) {
+      if (['success', 'succeeded', 'completed'].includes(state) || data.is_final && data.result_url) return data.result_url || data.result?.url || data.data?.result_url;
+      throw new Error(data.error?.message || data.message || '灵境生成失败');
+    }
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
+  throw new Error('灵境生成超时，请稍后重试');
+}
+
 function readCookies(req) { return Object.fromEntries(String(req.headers.cookie || '').split(';').map(part => part.trim().split('=').map(decodeURIComponent)).filter(([key]) => key)); }
 function hashPassword(password, salt = randomBytes(16).toString('hex')) { return `${salt}:${scryptSync(password, salt, 64).toString('hex')}`; }
 function verifyPassword(password, encoded) { const [salt, expected] = String(encoded || '').split(':'); if (!salt || !expected) return false; const actual = scryptSync(password, salt, 64); return actual.length === Buffer.from(expected, 'hex').length && timingSafeEqual(actual, Buffer.from(expected, 'hex')); }
@@ -110,7 +157,7 @@ async function loadRuntimeEnv() {
   catch { return { ...process.env }; }
 }
 
-async function createYunwuBackground(payload, env) {
+async function createYunwuBackground(payload, env, onProgress = () => {}) {
   const match = String(payload.imageData || '').match(/^data:(image\/[\w.+-]+);base64,(.+)$/);
   if (!match || !env.YUNWU_API_KEY || !env.YUNWU_BASE_URL) throw new Error('灵境图像设置未完成');
   await ensureLingkeBalance(env);
@@ -145,9 +192,15 @@ async function createYunwuBackground(payload, env) {
     form.append('size', outputSize);
     form.append('quality', 'auto');
     const endpoint = `${imageApiBase(env)}${env.YUNWU_IMAGE_EDIT_PATH || '/images/edits'}`;
-    const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form });
+    const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form, signal: AbortSignal.timeout(300000) });
     const data = await response.json();
     if (!response.ok) throw new Error(data?.error?.message || '灵境图像生成失败');
+    const asyncTaskId = data?.task_id || data?.data?.task_id || data?.error?.task_id;
+    if (asyncTaskId) {
+      const resultUrl = await waitLingkeTask(asyncTaskId, env, onProgress);
+      if (!resultUrl) throw new Error('灵境任务完成但没有返回图片地址');
+      return resultUrl;
+    }
     const items = Array.isArray(data.data) ? data.data : [data.data];
     const images = items.map(item => item?.b64_json ? `data:image/png;base64,${item.b64_json}` : item?.url).filter(Boolean);
     if (generationCount > 1 && images.length) return images;
@@ -168,9 +221,15 @@ async function createYunwuBackground(payload, env) {
   form.append('size', '1024x1536');
   form.append('quality', 'auto');
   const endpoint = `${imageApiBase(env)}${env.YUNWU_IMAGE_EDIT_PATH || '/images/edits'}`;
-  const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form });
+  const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form, signal: AbortSignal.timeout(300000) });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error?.message || '灵境图像生成失败');
+  const asyncTaskId = data?.task_id || data?.data?.task_id || data?.error?.task_id;
+  if (asyncTaskId) {
+    const resultUrl = await waitLingkeTask(asyncTaskId, env, onProgress);
+    if (!resultUrl) throw new Error('灵境任务完成但没有返回图片地址');
+    return resultUrl;
+  }
   const item = Array.isArray(data.data) ? data.data[0] : data.data;
   if (item?.b64_json) return `data:image/png;base64,${item.b64_json}`;
   if (item?.url) return item.url;
@@ -195,7 +254,7 @@ async function washImportedCopy(payload, env) {
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${env.MIMO_API_KEY}` },
-    body: JSON.stringify({ model: env.MIMO_MODEL || 'mimo-v2.5', temperature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }),
+    body: JSON.stringify({ model: env.MIMO_MODEL || 'mimo-v2.5', temperature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }), signal: AbortSignal.timeout(300000),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error?.message || data?.message || 'Mimo 文案生成失败');
@@ -204,6 +263,23 @@ async function washImportedCopy(payload, env) {
   try { parsed = JSON.parse(content); }
   catch { throw new Error('Mimo 返回格式异常，请重新生成'); }
   return { title: String(parsed.title || title).trim(), description: String(parsed.description || description).trim(), similarity };
+}
+
+async function runGeneration(payload, onProgress = () => {}) {
+  const localRender = async (background = payload.imageData) => {
+    const result = await fetch(`${imageWorkerUrl}/render`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ background, copy: payload.copy, layout: payload.layout || 'bold' }) });
+    if (!result.ok) throw new Error('本机排版服务未就绪');
+    return [await saveGeneratedImage(Buffer.from(await result.arrayBuffer()))];
+  };
+  const env = await loadRuntimeEnv();
+  if (env.YUNWU_API_KEY && env.YUNWU_BASE_URL) {
+    const background = await createYunwuBackground(payload, env, onProgress);
+    const items = Array.isArray(background) ? background : [background];
+    return Promise.all(items.map(async item => saveGeneratedImage(item.startsWith('data:image') ? Buffer.from(item.split(',', 2)[1], 'base64') : Buffer.from(await (await fetch(item)).arrayBuffer()))));
+  }
+  const result = await fetch(n8nWebhookUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-original-maker': '1' }, body: JSON.stringify(payload) });
+  if (result.ok && (result.headers.get('content-type') || '').startsWith('image/')) return [await saveGeneratedImage(Buffer.from(await result.arrayBuffer()))];
+  return localRender();
 }
 
 createServer(async (req, res) => {
@@ -294,8 +370,11 @@ createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/wash-copy') {
     try {
       const payload = JSON.parse((await readBody(req, 128 * 1024)).toString('utf8'));
-      return json(res, 200, await washImportedCopy(payload, await loadRuntimeEnv()));
-    } catch (error) { return json(res, 502, { error: error.message || '文案生成失败' }); }
+      const id = `job-${Date.now()}-${randomBytes(5).toString('hex')}`;
+      setGenerationTask(id, { status: 'processing', kind: 'copy', message: '正在等待 Mimo 返回文案', createdAt: Date.now() });
+      washImportedCopy(payload, await loadRuntimeEnv()).then(result => setGenerationTask(id, { status: 'completed', kind: 'copy', result, createdAt: Date.now() })).catch(error => setGenerationTask(id, { status: 'failed', kind: 'copy', error: error.message || '文案生成失败', createdAt: Date.now() }));
+      return json(res, 202, { taskId: id, status: 'processing' });
+    } catch (error) { return json(res, 400, { error: error.message || '文案任务提交失败' }); }
   }
   if (req.method === 'POST' && url.pathname === '/api/import-link') {
     try {
@@ -337,6 +416,19 @@ createServer(async (req, res) => {
     }
   }
   if (req.method === 'POST' && url.pathname === '/api/rebuild') {
+    try {
+      const payload = JSON.parse((await readBody(req)).toString('utf8'));
+      const id = `job-${Date.now()}-${randomBytes(5).toString('hex')}`;
+      setGenerationTask(id, { status: 'processing', kind: 'image', createdAt: Date.now() });
+      runGeneration(payload, progress => setGenerationTask(id, { ...generationTasks.get(id), ...progress, status: 'processing' })).then(images => setGenerationTask(id, { status: 'completed', kind: 'image', progress: 100, images, createdAt: Date.now() })).catch(error => setGenerationTask(id, { status: 'failed', kind: 'image', error: error.message || '生成失败', createdAt: Date.now() }));
+      return json(res, 202, { taskId: id, status: 'processing' });
+    } catch (error) { return json(res, 400, { error: error.message || '任务提交失败' }); }
+  }
+  if (req.method === 'GET' && url.pathname.startsWith('/api/tasks/')) {
+    const task = generationTasks.get(url.pathname.slice('/api/tasks/'.length));
+    return json(res, task ? 200 : 404, task || { error: '任务不存在' });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/rebuild-legacy') {
     let rebuildPayload;
     const localRender = async (payload, background = payload.imageData, source = 'local-fallback') => {
       const result = await fetch(`${imageWorkerUrl}/render`, {
