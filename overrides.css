@@ -1,4 +1,3 @@
-
 /* Responsive fixes layered over the original compact stylesheet. */
 .settings-dialog:has(.import-card) {
   max-height: calc(100dvh - 32px);
