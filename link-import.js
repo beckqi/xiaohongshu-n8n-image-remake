@@ -1,4 +1,3 @@
-
 const linkImport = {
   open: document.querySelector('#importLink'), dialog: document.querySelector('#importDialog'), close: document.querySelector('#closeImport'), url: document.querySelector('#importUrl'), fetch: document.querySelector('#fetchImport'),
   result: document.querySelector('#importResult'), title: document.querySelector('#importTitle'), description: document.querySelector('#importDescription'), grid: document.querySelector('#importGrid'), queue: document.querySelector('#queueImport'), status: document.querySelector('#importStatus'),
@@ -10,9 +9,41 @@ let workspaceImportItems = [];
 let activeImportIndex = 0;
 let applyingImportedItem = false;
 let linkProject = null;
+let activeCopyTaskId = null;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function setImportStatus(message) { linkImport.status.textContent = message; }
+function applyCopyResult(copyTaskId, fallbackTitle, fallbackDescription, data) {
+  const title = data.title || fallbackTitle; const description = data.description || fallbackDescription;
+  window.updateProjectTask?.(copyTaskId, { status: '已完成', copyTitle: title, copyDescription: description });
+  if (activeCopyTaskId !== copyTaskId) return;
+  linkImport.washedTitle.value = title; linkImport.washedDescription.value = description; linkImport.washResult.hidden = false;
+  setImportStatus(`已生成改写文案（目标相似度 ${data.similarity ?? linkImport.copySimilarity.value}%），可继续编辑或下载。`);
+}
+async function pollCopyTask(taskId, copyTaskId, fallbackTitle, fallbackDescription) {
+  const startedAt = Date.now();
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    await delay(attempt ? 1500 : 200);
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`); const state = await response.json();
+      if (!response.ok) throw new Error(state.error || '后台任务查询失败');
+      if (state.status === 'processing') {
+        if (activeCopyTaskId === copyTaskId) setImportStatus(`${state.message || '后台正在改写文案'}，已等待 ${Math.floor((Date.now() - startedAt) / 1000)} 秒；你可以继续操作其他内容。`);
+        continue;
+      }
+      if (state.status === 'failed') throw new Error(state.error || '文案生成失败');
+      if (state.status !== 'completed') throw new Error('后台返回了未知任务状态');
+      applyCopyResult(copyTaskId, fallbackTitle, fallbackDescription, state.result || {}); return;
+    } catch (error) {
+      const message = error.message || '文案生成失败';
+      window.updateProjectTask?.(copyTaskId, { status: '生成失败', message });
+      if (activeCopyTaskId === copyTaskId) setImportStatus(message);
+      return;
+    }
+  }
+  window.updateProjectTask?.(copyTaskId, { status: '生成失败', message: '文案生成超时，请稍后重试' });
+  if (activeCopyTaskId === copyTaskId) setImportStatus('文案生成超时，请稍后重试');
+}
 function drawImportedImages() {
   linkImport.grid.innerHTML = importedImages.map((url, index) => `<label class="import-image"><input type="checkbox" value="${index}" checked /><img src="/api/import-image?url=${encodeURIComponent(url)}" alt="导入图片 ${index + 1}" /><span>图片 ${index + 1}</span></label>`).join('');
 }
@@ -23,19 +54,28 @@ linkImport.copySimilarity.addEventListener('input', () => { linkImport.copySimil
 linkImport.wash.addEventListener('click', async () => {
   const title = linkImport.title.value.trim(); const description = linkImport.description.value.trim();
   if (!title && !description) return setImportStatus('请先提取或填写标题、文案');
-  const project=linkProject||{id:`project-${Date.now()}`,title:title||'链接导入项目'};linkProject=project;const copyTaskId=`copy-${Date.now()}`;window.saveProjectTask?.({id:copyTaskId,projectId:project.id,projectTitle:project.title,title,mode:'文案改写',time:new Date().toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}),status:'生成中'});
+  const project=linkProject||{id:`project-${Date.now()}`,title:title||'链接导入项目'};linkProject=project;const copyTaskId=`copy-${Date.now()}`;activeCopyTaskId=copyTaskId;window.saveProjectTask?.({id:copyTaskId,projectId:project.id,projectTitle:project.title,title,mode:'文案改写',time:new Date().toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}),status:'生成中'});
   linkImport.wash.classList.add('loading'); linkImport.wash.textContent = '正在生成改写文案…'; setImportStatus('Mimo 正在按目标相似度改写文案…');
   try {
     const response = await fetch('/api/wash-copy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, description, similarity: Number(linkImport.copySimilarity.value) }) });
-    const data = await response.json(); if (!response.ok) throw new Error(data.error || '文案生成失败');
-    linkImport.washedTitle.value = data.title || ''; linkImport.washedDescription.value = data.description || ''; linkImport.washResult.hidden = false;window.updateProjectTask?.(copyTaskId,{status:'已完成'});
-    setImportStatus(`已生成改写文案（目标相似度 ${data.similarity}%），可编辑后下载 TXT。`);
-  } catch (error) { window.updateProjectTask?.(copyTaskId,{status:'生成失败'});setImportStatus(error.message || '文案生成失败'); }
+    let data = await response.json(); if (!response.ok) throw new Error(data.error || '文案生成失败');
+    if (response.status === 202) {
+      window.updateProjectTask?.(copyTaskId, { backendTaskId: data.taskId, message: '正在等待 Mimo 返回文案' });
+      setImportStatus('文案已提交到后台，完成后会自动显示；你可以继续操作其他内容。');
+      pollCopyTask(data.taskId, copyTaskId, title, description);
+      return;
+    }
+    applyCopyResult(copyTaskId, title, description, data);
+  } catch (error) { const message=error.message||'文案生成失败';window.updateProjectTask?.(copyTaskId,{status:'生成失败',message});setImportStatus(message); }
   finally { linkImport.wash.classList.remove('loading'); linkImport.wash.textContent = '生成改写文案'; }
+});
+for (const field of [linkImport.washedTitle, linkImport.washedDescription]) field.addEventListener('input', () => {
+  if (activeCopyTaskId) window.updateProjectTask?.(activeCopyTaskId, { copyTitle: linkImport.washedTitle.value.trim(), copyDescription: linkImport.washedDescription.value.trim() });
 });
 linkImport.downloadCopy.addEventListener('click', () => {
   const title = linkImport.washedTitle.value.trim(); const description = linkImport.washedDescription.value.trim();
   if (!title && !description) return setImportStatus('请先生成改写文案');
+  if (activeCopyTaskId) window.updateProjectTask?.(activeCopyTaskId, { status: '已完成', copyTitle: title, copyDescription: description });
   const text = `标题\n${title}\n\n正文\n${description}\n`;
   const url = URL.createObjectURL(new Blob([`\uFEFF${text}`], { type: 'text/plain;charset=utf-8' }));
   const download = document.createElement('a'); download.href = url; download.download = `小红书改写文案-${new Date().toISOString().slice(0, 10)}.txt`; download.click(); URL.revokeObjectURL(url);
