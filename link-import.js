@@ -22,27 +22,39 @@ function applyCopyResult(copyTaskId, fallbackTitle, fallbackDescription, data) {
 }
 async function pollCopyTask(taskId, copyTaskId, fallbackTitle, fallbackDescription) {
   const startedAt = Date.now();
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  let queryFailures = 0;
+  for (let attempt = 0; ; attempt += 1) {
     await delay(attempt ? 1500 : 200);
     try {
       const response = await fetch(`/api/tasks/${taskId}`); const state = await response.json();
-      if (!response.ok) throw new Error(state.error || '后台任务查询失败');
+      if (response.status === 404) {
+        const message = state.error || '后台任务已失效，请重新生成';
+        window.updateProjectTask?.(copyTaskId, { status: '生成失败', message });
+        if (activeCopyTaskId === copyTaskId) setImportStatus(message);
+        return;
+      }
+      if (!response.ok) throw new Error(state.error || '后台任务查询暂时不可用');
+      queryFailures = 0;
       if (state.status === 'processing') {
         if (activeCopyTaskId === copyTaskId) setImportStatus(`${state.message || '后台正在改写文案'}，已等待 ${Math.floor((Date.now() - startedAt) / 1000)} 秒；你可以继续操作其他内容。`);
         continue;
       }
-      if (state.status === 'failed') throw new Error(state.error || '文案生成失败');
-      if (state.status !== 'completed') throw new Error('后台返回了未知任务状态');
+      if (state.status === 'failed') {
+        const message = state.error || '文案生成失败';
+        window.updateProjectTask?.(copyTaskId, { status: '生成失败', message });
+        if (activeCopyTaskId === copyTaskId) setImportStatus(message);
+        return;
+      }
+      if (state.status !== 'completed') continue;
       applyCopyResult(copyTaskId, fallbackTitle, fallbackDescription, state.result || {}); return;
     } catch (error) {
-      const message = error.message || '文案生成失败';
-      window.updateProjectTask?.(copyTaskId, { status: '生成失败', message });
+      queryFailures += 1;
+      const message = `${error.message || '任务状态查询中断'}，正在自动重试（${queryFailures}）`;
+      window.updateProjectTask?.(copyTaskId, { status: '生成中', message });
       if (activeCopyTaskId === copyTaskId) setImportStatus(message);
-      return;
+      await delay(Math.min(10000, queryFailures * 1000));
     }
   }
-  window.updateProjectTask?.(copyTaskId, { status: '生成失败', message: '文案生成超时，请稍后重试' });
-  if (activeCopyTaskId === copyTaskId) setImportStatus('文案生成超时，请稍后重试');
 }
 function drawImportedImages() {
   linkImport.grid.innerHTML = importedImages.map((url, index) => `<label class="import-image"><input type="checkbox" value="${index}" checked /><img src="/api/import-image?url=${encodeURIComponent(url)}" alt="导入图片 ${index + 1}" /><span>图片 ${index + 1}</span></label>`).join('');
@@ -166,3 +178,4 @@ linkImport.queue.addEventListener('click', async () => {
   } catch (error) { setImportStatus(error.message || '图片带入失败'); }
   finally { linkImport.queue.classList.remove('loading'); }
 });
+[rtk] /!\ No hook installed — run `rtk init -g` for automatic token savings
