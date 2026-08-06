@@ -290,7 +290,13 @@ async function washImportedCopy(payload, env) {
       ? '保留原有主题、卖点、事实和语气，可优化表达节奏与结构，但不能改变信息含义。'
       : similarity >= 40
         ? '保留主题及全部事实卖点，用全新的叙述结构和表达方式改写，使读感明显不同。'
-        : '只保留真实主题和事实卖点，重新设计标题与正文的表达角度和节奏…338 tokens truncated…ed' }, max_completion_tokens: 2048, response_format: { type: 'json_object' }, temperature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }),
+        : '只保留真实主题和事实卖点，重新设计标题与正文的表达角度和节奏。';
+  const prompt = `你是资深小红书笔记文案编辑。用户拥有以下内容的使用权，需要生成一个可直接发布的“小红书风格”改写版本。${direction} 标题要自然、有具体信息点或轻钩子，不要标题党；正文使用轻松口语化的中文，开头先点明读者收益，随后用短段落、换行和少量 emoji（每段最多 1 个）提升可读性；必要时以「适合谁」「包含什么」「怎么用」这类小标题或清单组织内容；结尾给出自然、不过度营销的互动或行动引导。保留原文的事实、对象、年级、版本、资料内容等关键信息。不得添加原文没有的价格、承诺、资质、数据、稀缺性或夸大性结论；不要写“爆款”“闭眼入”“私信我”等强营销话术；不得提及洗稿、相似度或 AI。输出严格 JSON，不要 Markdown：{"title":"...","description":"..."}。\n原始标题：${title || '（无）'}\n原始正文：${description || '（无）'}`;
+  const endpoint = `${env.MIMO_BASE_URL.replace(/\/$/, '')}/chat/completions`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${env.MIMO_API_KEY}` },
+    body: JSON.stringify({ model: env.MIMO_MODEL || 'mimo-v2.5', thinking: { type: 'disabled' }, max_completion_tokens: 2048, response_format: { type: 'json_object' }, temperature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error?.message || data?.message || 'Mimo 文案生成失败');
