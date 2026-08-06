@@ -72,6 +72,13 @@ function parseEnv(content) {
   }).filter(Boolean));
 }
 
+function stripJsonFence(value) {
+  let content = String(value || '').trim();
+  if (content.toLowerCase().startsWith('```json')) content = content.slice(7).trim();
+  if (content.endsWith('```')) content = content.slice(0, -3).trim();
+  return content;
+}
+
 function mask(value) {
   return value ? `已保存（末尾 ${value.slice(-4)}）` : '';
 }
@@ -283,12 +290,11 @@ async function washImportedCopy(payload, env) {
       ? '保留原有主题、卖点、事实和语气，可优化表达节奏与结构，但不能改变信息含义。'
       : similarity >= 40
         ? '保留主题及全部事实卖点，用全新的叙述结构和表达方式改写，使读感明显不同。'
-        : '只保留真实主题和事实卖点，重新设计标题与正文的表达角度和节奏。';
-  const prompt = `你是资深小红书笔记文案编辑。用户拥有以下内容的使用权，需要生成一个可直接发布的“小红书风格”改写版本。${direction} 标题要自然、有具体信息点或轻钩子，不要标题党…296 tokens truncated…ature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }),
+        : '只保留真实主题和事实卖点，重新设计标题与正文的表达角度和节奏…338 tokens truncated…ed' }, max_completion_tokens: 2048, response_format: { type: 'json_object' }, temperature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error?.message || data?.message || 'Mimo 文案生成失败');
-  const content = String(data?.choices?.[0]?.message?.content || '').replace(/^```json\s*|\s*```$/g, '').trim();
+  const content = stripJsonFence(data?.choices?.[0]?.message?.content);
   let parsed;
   try { parsed = JSON.parse(content); }
   catch { throw new Error('Mimo 返回格式异常，请重新生成'); }
@@ -317,7 +323,7 @@ async function recognizePosterWithMimo(payload, env) {
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error?.message || data?.message || 'Mimo 图片识别失败');
   const rawContent = data?.choices?.[0]?.message?.content;
-  const content = (Array.isArray(rawContent) ? rawContent.map(part => part?.text || '').join('') : String(rawContent || '')).replace(/^```json\s*|\s*```$/g, '').trim();
+  const content = stripJsonFence(Array.isArray(rawContent) ? rawContent.map(part => part?.text || '').join('') : rawContent);
   const jsonText = content.match(/\{[\s\S]*\}/)?.[0] || content;
   let parsed;
   try { parsed = JSON.parse(jsonText); }
