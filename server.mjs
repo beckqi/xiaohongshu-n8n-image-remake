@@ -528,4 +528,3 @@ createServer(async (req, res) => {
     res.end('Not found');
   }
 }).listen(port, () => console.log(`Original Maker is running at http://localhost:${port}`));
-[rtk] /!\ No hook installed — run `rtk init -g` for automatic token savings
