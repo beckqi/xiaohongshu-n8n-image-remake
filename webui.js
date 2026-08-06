@@ -2,7 +2,7 @@ const ui = {
   file: document.querySelector('#imageFile'), zone: document.querySelector('#uploadZone'), source: document.querySelector('#sourceImage'), empty: document.querySelector('#uploadEmpty'),
   status: document.querySelector('#uploadStatus'), title: document.querySelector('#titleInput'), subtitle: document.querySelector('#subtitleInput'), benefits: document.querySelector('#benefitsInput'),
   posterTitle: document.querySelector('#posterTitle'), posterSubtitle: document.querySelector('#posterSubtitle'), posterBenefits: document.querySelector('#posterBenefits'), posterBg: document.querySelector('#posterBg'), posterCopy: document.querySelector('.poster-copy'), aiPlaceholder: document.querySelector('#aiPreviewPlaceholder'), originalPreview: document.querySelector('#originalPreview'), sourceEmpty: document.querySelector('#sourceEmpty'), frame: document.querySelector('#posterFrame'), ratio: document.querySelector('#imageRatio'), count: document.querySelector('#generationCount'),
-  mode: 'layout', stylePreset: 'education-xhs', modeLabel: document.querySelector('#posterMode'), generate: document.querySelector('#generate'), note: document.querySelector('#generationNote'), toast: document.querySelector('#toast'), similarity: document.querySelector('#similarityInput'), similarityValue: document.querySelector('#similarityValue'), similarityHint: document.querySelector('#similarityHint')
+  mode: 'layout', recognitionMode: 'deep', stylePreset: 'education-xhs', modeLabel: document.querySelector('#posterMode'), generate: document.querySelector('#generate'), note: document.querySelector('#generationNote'), toast: document.querySelector('#toast'), similarity: document.querySelector('#similarityInput'), similarityValue: document.querySelector('#similarityValue'), similarityHint: document.querySelector('#similarityHint')
 };
 const settings = {
   button: document.querySelector('#settings'), dialog: document.querySelector('#settingsDialog'), form: document.querySelector('#settingsForm'), save: document.querySelector('#saveSettings'),
@@ -11,6 +11,8 @@ const settings = {
 const recent = { button: document.querySelector('#recentTasks'), dialog: document.querySelector('#recentDialog'), close: document.querySelector('#closeRecent'), list: document.querySelector('#recentList') };
 const recentSession = String(Date.now());
 const account = { name: document.querySelector('#accountName'), logout: document.querySelector('#logout') };
+const mimoReview = { dialog: document.querySelector('#mimoReviewDialog'), close: document.querySelector('#closeMimoReview'), cancel: document.querySelector('#cancelMimoReview'), confirm: document.querySelector('#confirmMimoReview'), title: document.querySelector('#reviewTitle'), subtitle: document.querySelector('#reviewSubtitle'), benefits: document.querySelector('#reviewBenefits'), summary: document.querySelector('#recognitionSummary') };
+const recognition = { button: document.querySelector('#demoOcr'), state: document.querySelector('#recognitionState'), modes: document.querySelector('#recognitionModes'), fields: document.querySelector('#copyConfirmFields'), controller: null };
 fetch('/api/auth/session').then(async response => { if (!response.ok) return location.replace('/login.html'); const data = await response.json(); account.name.textContent = data.user?.username || ''; }).catch(() => location.replace('/login.html'));
 account.logout.addEventListener('click', async () => { await fetch('/api/auth/logout', { method: 'POST' }); location.replace('/login.html'); });
 
@@ -32,28 +34,60 @@ window.saveProjectTask=saveRecentTask;window.updateProjectTask=updateRecentTask;
 function renderRecentTasks(){const tasks=getRecentTasks();const groups=new Map();tasks.forEach(task=>{const key=task.projectId||task.id;const group=groups.get(key)||{title:task.projectTitle||task.title,items:[],project:!!task.projectId};group.items.push(task);groups.set(key,group)});recent.list.innerHTML=groups.size?[...groups.entries()].map(([id,group])=>{if(!group.project){const task=group.items[0];return `<article class="recent-item"><div class="recent-icon">✦</div><div><strong>${task.title||'未命名海报'}</strong><small>${task.mode} · ${task.time} · ${task.status||'已完成'}</small></div>${task.status==='生成中'?'<span class="recent-running">生成中</span>':task.url?`<a href="${task.url}" download="${task.fileName}">下载</a>`:'<span class="recent-stale">文件已过期</span>'}</article>`}const done=group.items.filter(task=>task.status==='已完成').length;const running=group.items.some(task=>task.status==='生成中');return `<article class="recent-item project-item"><div class="recent-icon">▦</div><div><strong>${group.title||'链接导入项目'}</strong><small>项目任务 · 已完成 ${done}/${group.items.length} 张</small></div>${running?'<span class="recent-running">生成中</span>':`<button class="ghost project-download" data-project-id="${id}">下载项目包</button>`}</article>`}).join(''):'<div class="recent-empty">还没有生成记录。完成第一张海报后，会显示在这里。</div>';}
 function imageAsDataUrl(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file)})}
 function blockMetrics(block){const p=block.box||[];const xs=p.map(x=>x[0]),ys=p.map(x=>x[1]);return {width:Math.max(...xs)-Math.min(...xs),top:Math.min(...ys)}}
+function openMimoReview(data){
+  const benefits=(data.content||data.benefits||[]).map(x=>String(x).trim()).filter(Boolean);
+  mimoReview.title.value=String(data.title||'').trim();mimoReview.subtitle.value=String(data.subtitle||'').trim();mimoReview.benefits.value=benefits.join('\n');
+  mimoReview.summary.innerHTML=`<span><b>${mimoReview.title.value?'1':'0'}</b> 文档标题</span><span><b>${mimoReview.subtitle.value?'1':'0'}</b> 副标题</span><span><b>${benefits.length}</b> 条图片文案</span>`;
+  if(!mimoReview.dialog.open)mimoReview.dialog.showModal();
+}
+mimoReview.close.addEventListener('click',()=>mimoReview.dialog.close());
+mimoReview.cancel.addEventListener('click',()=>{mimoReview.dialog.close();ui.status.textContent='识别结果尚未确认';toast('识别结果未写入工作台');});
+mimoReview.confirm.addEventListener('click',()=>{
+  const title=mimoReview.title.value.trim(),subtitle=mimoReview.subtitle.value.trim(),benefits=mimoReview.benefits.value.split(/\r?\n|｜/).map(x=>x.trim()).filter(Boolean);
+  if(!title&&!subtitle&&!benefits.length){toast('请至少保留一项文案');return;}
+  ui.title.value=title;ui.subtitle.value=subtitle;ui.benefits.value=benefits.join('｜');renderPreview();mimoReview.dialog.close();ui.status.textContent='Mimo 文案已确认';toast('文案已确认，可以发送给 img-2 生成');
+});
+function idleGenerateLabel(){return ui.recognitionMode==='direct'?'直接交给 img-2 生成':'确认文案并生成';}
+window.getIdleGenerateLabel=idleGenerateLabel;
+function setRecognitionMode(mode,{recognize=false}={}){
+  if(!['deep','fast','direct'].includes(mode))mode='deep';
+  const runningController=recognition.controller;recognition.controller=null;runningController?.abort();ui.recognitionMode=mode;
+  recognition.modes.querySelectorAll('.recognition-mode').forEach(button=>{const selected=button.dataset.recognitionMode===mode;button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected));});
+  const direct=mode==='direct';recognition.fields.hidden=true;recognition.button.hidden=direct;ui.generate.querySelector('span').textContent=idleGenerateLabel();
+  if(direct){ui.status.textContent='已选择直接生成';recognition.state.className='recognition-state direct';recognition.state.querySelector('strong').textContent='跳过文案识别';recognition.state.querySelector('small').textContent='生成时会把原图直接交给 img-2，由它自行理解内容与排版';}
+  else{const deep=mode==='deep',hasFile=Boolean(ui.file.files[0]);recognition.state.className='recognition-state';recognition.state.querySelector('strong').textContent=hasFile?`已选择${deep?'深度':'快速'}识别`:deep?'等待深度识别':'等待快速识别';recognition.state.querySelector('small').textContent=hasFile?'点击右上角“开始识别”后才会调用 Mimo':deep?'上传图片并确认模式后，再手动开始识别':'上传图片并确认模式后，再手动开始识别';recognition.button.textContent='开始识别';}
+  window.syncActiveImportedRecognitionMode?.(mode);
+  const file=ui.file.files[0];if(recognize&&file&&!direct)recognizeCopy(file,{mode});
+}
+window.setRecognitionMode=setRecognitionMode;
+recognition.modes.addEventListener('click',event=>{const button=event.target.closest('.recognition-mode');if(!button||button.dataset.recognitionMode===ui.recognitionMode)return;setRecognitionMode(button.dataset.recognitionMode);toast(button.dataset.recognitionMode==='direct'?'已切换：原图直接交给 img-2':button.dataset.recognitionMode==='deep'?'已选择深度识别，请点击开始识别':'已选择快速识别，请点击开始识别');});
 async function recognizeCopy(file, options={}){
-  ui.status.textContent='正在识别文案';
+  const requestedMode=options.mode||ui.recognitionMode;
+  if(requestedMode==='direct'){setRecognitionMode('direct');return '';}
+  const isDeep=requestedMode==='deep';ui.status.textContent='Mimo 正在看图并整理文案';
+  recognition.controller?.abort();const controller=new AbortController();recognition.controller=controller;
+  recognition.button.disabled=true;recognition.button.textContent=isDeep?'深度识别中…':'快速识别中…';recognition.state.className='recognition-state pending';recognition.state.querySelector('strong').textContent=isDeep?'mimo-v2.5 正在深度识别完整文案':'mimo-v2.5 正在快速识别文案';recognition.state.querySelector('small').textContent=isDeep?'深度思考约需 60–120 秒，请不要关闭页面':'通常约需 5–15 秒，请稍候';
+  const timeout=setTimeout(()=>controller.abort(),isDeep?180000:60000);
   try{
     const imageData=await imageAsDataUrl(file);
-    const response=await fetch('/api/ocr',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({imageData})});
-    const data=await response.json();
+    const response=await fetch('/api/mimo-recognize',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({imageData,recognitionMode:requestedMode}),signal:controller.signal});
+    const data=await response.json().catch(()=>({error:`识别接口返回异常（${response.status}）`}));
     if(!response.ok)throw new Error(data.error||'识别失败');
-    const blocks=(data.blocks||[]).filter(x=>x.text&&x.confidence>.45).sort((a,b)=>blockMetrics(a).top-blockMetrics(b).top);
-    if(!blocks.length)throw new Error('未识别到清晰文字，请换一张更清晰的图');
-    const byWidth=[...blocks].sort((a,b)=>blockMetrics(b).width-blockMetrics(a).width);
-    const title=byWidth[0]?.text||blocks[0].text;
-    const subtitle=byWidth.find(x=>x.text!==title)?.text||'';
-    const benefits=blocks.map(x=>x.text).filter(x=>x!==title&&x!==subtitle).join('｜');
+    const title=String(data.title||'').trim();
+    const subtitle=String(data.subtitle||'').trim();
+    const benefits=(data.content||data.benefits||[]).map(x=>String(x).trim()).filter(Boolean);
+    if(ui.recognitionMode!==requestedMode)return '';
+    if(!title&&!subtitle&&!benefits.length)throw new Error('Mimo 未识别到清晰文案，请换一张更清晰的图');
     if(options.subtitleOnly){ui.subtitle.value=subtitle;renderPreview();toast(subtitle?'已自动识别副标题':'未识别到副标题');return subtitle;}
-    ui.title.value=title;ui.subtitle.value=subtitle;ui.benefits.value=benefits;renderPreview();
-    ui.status.textContent=`已识别 ${blocks.length} 段文案`;toast('文案已识别并填入，可直接修改');
-  }catch(error){ui.status.textContent='识别失败';toast(error.message||'文案识别失败');return '';}
+    openMimoReview({title,subtitle,content:benefits});
+    ui.status.textContent='Mimo 已整理文案，等待弹窗确认';recognition.state.className='recognition-state success';recognition.state.querySelector('strong').textContent='识别成功，等待确认';recognition.state.querySelector('small').textContent='请在弹窗中检查标题、副标题和卖点';toast('识别成功，请在弹窗中核对信息');
+  }catch(error){if(error.name==='AbortError'&&recognition.controller!==controller)return '';const message=error.name==='AbortError'?`Mimo ${isDeep?'深度':'快速'}识别超时，请重试`:(error.message||'文案识别失败');ui.status.textContent='识别失败';recognition.state.className='recognition-state error';recognition.state.querySelector('strong').textContent='识别失败';recognition.state.querySelector('small').textContent=message;toast(message);return '';}
+  finally{clearTimeout(timeout);if(recognition.controller===controller){recognition.controller=null;recognition.button.disabled=false;recognition.button.textContent='重新识别';}}
 }
 function handleFile(file){
   if(!file) return;
   if(file.size>8*1024*1024){toast('图片请控制在 8MB 以内');return;}
-  const url=URL.createObjectURL(file);ui.source.src=url;ui.source.hidden=false;ui.empty.hidden=true;ui.status.textContent='已上传';ui.originalPreview.src=url;ui.originalPreview.hidden=false;ui.sourceEmpty.hidden=true;ui.posterBg.hidden=true;ui.posterCopy.hidden=true;ui.modeLabel.hidden=true;ui.aiPlaceholder.hidden=false;setPreviewRatio();toast('参考图已加载，正在识别文案');recognizeCopy(file);
+  const url=URL.createObjectURL(file);ui.source.src=url;ui.source.hidden=false;ui.empty.hidden=true;ui.status.textContent='已上传';ui.originalPreview.src=url;ui.originalPreview.hidden=false;ui.sourceEmpty.hidden=true;ui.posterBg.hidden=true;ui.posterCopy.hidden=true;ui.modeLabel.hidden=true;ui.aiPlaceholder.hidden=false;setPreviewRatio();setRecognitionMode(ui.recognitionMode);toast(ui.recognitionMode==='direct'?'参考图已加载，可直接生成':'参考图已加载，请选择模式后点击“开始识别”');
 }
 ui.file.addEventListener('change',e=>handleFile(e.target.files[0]));
 ['dragenter','dragover'].forEach(event=>ui.zone.addEventListener(event,e=>{e.preventDefault();ui.zone.classList.add('drag')}));
@@ -65,8 +99,8 @@ document.querySelector('#stylePresets').addEventListener('click',e=>{const butto
 function updateSimilarityUI(){const value=Number(ui.similarity.value);ui.similarityValue.textContent=`${value}%`;ui.similarityHint.textContent=value>=90?'轻微微调：尽量保留原图构图、主体与色调，仅改局部细节':value>=75?'贴近原图主题与氛围，但允许调整构图':'数值越低，AI 改变场景、构图与视觉语言的幅度越大';}
 ui.similarity.addEventListener('input',()=>{updateSimilarityUI();window.syncActiveImportedSimilarity?.(Number(ui.similarity.value));});
 ui.ratio.addEventListener('change',setPreviewRatio);
-document.querySelector('#demoOcr').addEventListener('click',()=>{const file=ui.file.files[0];if(!file){toast('请先上传图片再识别');return;}recognizeCopy(file);});
-document.querySelector('#reset').addEventListener('click',()=>{ui.file.value='';ui.source.hidden=true;ui.empty.hidden=false;ui.originalPreview.hidden=true;ui.sourceEmpty.hidden=false;ui.posterBg.hidden=true;ui.posterCopy.hidden=true;ui.modeLabel.hidden=true;ui.aiPlaceholder.hidden=false;ui.status.textContent='等待上传';ui.mode='layout';document.querySelectorAll('.mode-card').forEach((x,i)=>x.classList.toggle('selected',i===0));renderPreview();toast('已恢复初始状态');});
+recognition.button.addEventListener('click',()=>{const file=ui.file.files[0];if(!file){recognition.state.className='recognition-state error';recognition.state.querySelector('strong').textContent='没有可识别的图片';recognition.state.querySelector('small').textContent='请先上传或从链接导入一张图片';toast('请先上传图片再识别');return;}recognizeCopy(file,{mode:ui.recognitionMode});});
+document.querySelector('#reset').addEventListener('click',()=>{ui.file.value='';ui.source.hidden=true;ui.empty.hidden=false;ui.originalPreview.hidden=true;ui.sourceEmpty.hidden=false;ui.posterBg.hidden=true;ui.posterCopy.hidden=true;ui.modeLabel.hidden=true;ui.aiPlaceholder.hidden=false;ui.status.textContent='等待上传';ui.mode='layout';document.querySelectorAll('.mode-card').forEach((x,i)=>x.classList.toggle('selected',i===0));setRecognitionMode('deep');renderPreview();toast('已恢复初始状态');});
 settings.button.addEventListener('click', async () => {
   settings.dialog.showModal();
   try {
@@ -117,25 +151,32 @@ async function waitForGenerationTask(taskId, onWaiting=()=>{}){
     }
   }
 }
+const pendingGenerationSubmissions=new Set();
+function setGenerationSubmissionPending(taskId,pending){
+  if(pending)pendingGenerationSubmissions.add(taskId);else pendingGenerationSubmissions.delete(taskId);
+  const submitting=pendingGenerationSubmissions.size>0;ui.generate.classList.toggle('loading',submitting);
+  ui.generate.querySelector('span').textContent=submitting?'正在提交到后台…':idleGenerateLabel();
+  if(!submitting){window.refreshImportedGenerationUI?.();if(!window.getActiveImportedItem?.())ui.note.lastElementChild.textContent='任务已在后台运行，你可以继续调整并再次提交。';}
+}
 ui.generate.addEventListener('click',async()=>{
   const file=ui.file.files[0];
   if(!file){toast('请先上传一张参考图片');return;}
   const importedItem=window.getActiveImportedItem?.();
-  if(importedItem?.generationStatus==='生成中'){toast('这张图片已在生成队列中，可切换其他图片继续提交');return;}
-  const taskId=`task-${Date.now()}`;saveRecentTask({id:taskId,title:ui.title.value.trim(),mode:modeLabels[ui.mode],time:new Date().toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}),status:'生成中',session:recentSession,projectId:importedItem?.projectId,projectTitle:importedItem?.projectTitle});
-  if(importedItem){importedItem.generationStatus='生成中';window.refreshImportedGenerationUI?.();}else{ui.generate.classList.add('loading');ui.generate.querySelector('span').textContent='AI 正在生成…';ui.note.lastElementChild.textContent='灵境正在用 GPT Image 2 重构画面，请稍候。';}
+  const taskTitle=ui.recognitionMode==='direct'?'直接生成海报':ui.title.value.trim();const taskId=`task-${Date.now()}`;saveRecentTask({id:taskId,title:taskTitle,mode:modeLabels[ui.mode],time:new Date().toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}),status:'生成中',session:recentSession,projectId:importedItem?.projectId,projectTitle:importedItem?.projectTitle});
+  if(importedItem){importedItem.activeJobs=Number(importedItem.activeJobs||0)+1;importedItem.generationStatus='生成中';window.refreshImportedGenerationUI?.();}
+  setGenerationSubmissionPending(taskId,true);ui.note.lastElementChild.textContent='正在把任务提交到后台队列…';
   ui.aiPlaceholder.hidden=false;ui.aiPlaceholder.querySelector('strong').textContent='AI 正在生成真实成图';
   const isCurrentItem=()=>!importedItem||window.getActiveImportedItem?.()===importedItem;
   const showResult=url=>{if(!isCurrentItem())return;ui.posterBg.src=url;ui.posterBg.hidden=false;ui.posterCopy.hidden=true;ui.modeLabel.hidden=true;ui.aiPlaceholder.hidden=true;};
+  let importedTaskSettled=false;const settleImported=(status,url)=>{if(!importedItem||importedTaskSettled)return;importedTaskSettled=true;importedItem.activeJobs=Math.max(0,Number(importedItem.activeJobs||0)-1);importedItem.generationStatus=importedItem.activeJobs?'生成中':status;if(url)importedItem.resultUrl=url;};
   try{
-    if(ui.subtitle.value.trim()==='识别'){await recognizeCopy(file,{subtitleOnly:true});}
     const imageData=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(file)});
-    const response=await fetch('/api/rebuild',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({imageData,mode:ui.mode,stylePreset:ui.stylePreset,similarity:Number(ui.similarity.value),imageRatio:ui.ratio.value,generationCount:Number(ui.count.value),copy:{title:ui.title.value,subtitle:ui.subtitle.value,benefits:ui.benefits.value.split('｜').map(x=>x.trim()).filter(Boolean),eyebrow:'小学同步学习资料'},layout:'bold'})});
+    const copy=ui.recognitionMode==='direct'?{title:'',subtitle:'',benefits:[]}:{title:ui.title.value,subtitle:ui.subtitle.value,benefits:ui.benefits.value.split('｜').map(x=>x.trim()).filter(Boolean),eyebrow:'小学同步学习资料'};
+    const response=await fetch('/api/rebuild',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({imageData,mode:ui.mode,recognitionMode:ui.recognitionMode,stylePreset:ui.stylePreset,similarity:Number(ui.similarity.value),imageRatio:ui.ratio.value,generationCount:Number(ui.count.value),copy,layout:'bold'})});
     if(!response.ok) throw new Error((await response.json()).error || '后台暂未就绪');
-    if(response.status===202){const job=await response.json();updateRecentTask(taskId,{backendTaskId:job.taskId,message:'正在等待灵客返回图片'});const state=await waitForGenerationTask(job.taskId,message=>updateRecentTask(taskId,{status:'生成中',message}));if(state.status==='failed')throw new Error(state.error||'生成失败');const images=state.images||[];if(!images.length)throw new Error('生成未返回图片');if(importedItem){importedItem.generationStatus='已完成';importedItem.resultUrl=images[0];}showResult(images[0]);updateRecentTask(taskId,{status:'已完成',progress:100,fileName:`已生成 ${images.length} 张`,url:images[0],message:''});toast(`已生成 ${images.length} 张海报`);return;}
-    const contentType=response.headers.get('content-type')||'';if(contentType.includes('application/json')){const data=await response.json();const images=data.images||[];if(!images.length)throw new Error('灵境未返回图片');images.forEach((image,index)=>{const download=document.createElement('a');download.href=image;download.download=`海报重构-${Date.now()}-${index+1}.png`;download.click();});if(importedItem){importedItem.generationStatus='已完成';importedItem.resultUrl=images[0];}showResult(images[0]);updateRecentTask(taskId,{status:'已完成',fileName:`已生成 ${images.length} 张`,url:images[0]});toast(`已生成 ${images.length} 张海报，正在下载`);}else{const blob=await response.blob();const url=URL.createObjectURL(blob);const fileName=`海报重构-${new Date().toISOString().slice(0,10)}.png`;const download=document.createElement('a');download.href=url;download.download=fileName;download.click();if(importedItem){importedItem.generationStatus='已完成';importedItem.resultUrl=url;}showResult(url);updateRecentTask(taskId,{status:'已完成',fileName,url});toast('新海报已生成，正在下载 PNG 文件');}
-  }catch(error){if(importedItem)importedItem.generationStatus='生成失败';updateRecentTask(taskId,{status:'生成失败'});toast(error.message || 'n8n 尚未完成连接配置');}
-  finally{if(importedItem){window.refreshImportedGenerationUI?.();}else{ui.generate.classList.remove('loading');ui.generate.querySelector('span').textContent='生成新海报';ui.note.lastElementChild.textContent='准备就绪。预计生成 30–90 秒。';}}
+    if(response.status===202){const job=await response.json();setGenerationSubmissionPending(taskId,false);updateRecentTask(taskId,{backendTaskId:job.taskId,message:'正在等待灵客返回图片'});toast('任务已进入后台队列，可以继续调整或再次生成');const state=await waitForGenerationTask(job.taskId,message=>updateRecentTask(taskId,{status:'生成中',message}));if(state.status==='failed')throw new Error(state.error||'生成失败');const images=state.images||[];if(!images.length)throw new Error('生成未返回图片');settleImported('已完成',images[0]);showResult(images[0]);updateRecentTask(taskId,{status:'已完成',progress:100,fileName:`已生成 ${images.length} 张`,url:images[0],message:''});toast(`已生成 ${images.length} 张海报`);return;}
+    const contentType=response.headers.get('content-type')||'';if(contentType.includes('application/json')){const data=await response.json();const images=data.images||[];if(!images.length)throw new Error('灵境未返回图片');images.forEach((image,index)=>{const download=document.createElement('a');download.href=image;download.download=`海报重构-${Date.now()}-${index+1}.png`;download.click();});settleImported('已完成',images[0]);showResult(images[0]);updateRecentTask(taskId,{status:'已完成',fileName:`已生成 ${images.length} 张`,url:images[0]});toast(`已生成 ${images.length} 张海报，正在下载`);}else{const blob=await response.blob();const url=URL.createObjectURL(blob);const fileName=`海报重构-${new Date().toISOString().slice(0,10)}.png`;const download=document.createElement('a');download.href=url;download.download=fileName;download.click();settleImported('已完成',url);showResult(url);updateRecentTask(taskId,{status:'已完成',fileName,url});toast('新海报已生成，正在下载 PNG 文件');}
+  }catch(error){settleImported('生成失败');updateRecentTask(taskId,{status:'生成失败'});toast(error.message || 'n8n 尚未完成连接配置');}
+  finally{setGenerationSubmissionPending(taskId,false);window.refreshImportedGenerationUI?.();}
 });
-setPreviewRatio();renderPreview();recoverCompletedTasks();
-
+setRecognitionMode('deep');setPreviewRatio();renderPreview();recoverCompletedTasks();
