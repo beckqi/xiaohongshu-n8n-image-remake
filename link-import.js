@@ -178,4 +178,3 @@ linkImport.queue.addEventListener('click', async () => {
   } catch (error) { setImportStatus(error.message || '图片带入失败'); }
   finally { linkImport.queue.classList.remove('loading'); }
 });
-[rtk] /!\ No hook installed — run `rtk init -g` for automatic token savings
