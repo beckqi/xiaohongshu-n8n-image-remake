@@ -192,6 +192,9 @@ async function createYunwuBackground(payload, env, onProgress = () => {}) {
   const generationCount = Math.min(10, Math.max(1, Math.round(Number(payload.generationCount ?? 1))));
   const outputSize = { source: 'auto', portrait: '1024x1536', square: '1024x1024', landscape: '1536x1024' }[payload.imageRatio] || '1024x1536';
   if (['layout', 'rewrite', 'rebuild', 'free'].includes(payload.mode)) {
+    const styleDirection = payload.stylePreset === 'education-xhs'
+      ? '【最高优先级风格锁定：教培爆款长图】必须严格使用小红书教培资料推广长图视觉：奶油白纸张底色，墨绿/青绿与橙红为主色、明黄点缀；超大粗体中文标题必须具有白色厚描边、贴纸剪裁边缘和轻微投影；采用高信息密度的模块化拼贴排版，包含笔刷横幅、撕纸边、便签纸、胶带、线圈本、手绘箭头、勾选图标、书本或文具等元素；使用圆角信息卡片、清晰的目录/卖点清单和促销按钮式标签。插画采用温暖、精致、轻3D儿童绘本商业插画质感。禁止极简风、暗色调、赛博朋克、真实摄影、空洞背景或普通企业PPT风。无论参考图和重构方式为何，以上风格规范优先于它们，但不可使用任何原图Logo、水印、账号名或品牌标识。'
+      : '不额外锁定视觉风格，按参考图主题和所选重构方式创作。';
     const creativeDirection = {
       layout: '保留参考图所表达的内容主题，但完全由你重新决定构图和文字排版，不要照抄原图版式。',
       rewrite: '用更有吸引力的营销表达呈现以下信息，并由你自由决定构图和文字排版。',
@@ -209,7 +212,7 @@ async function createYunwuBackground(payload, env, onProgress = () => {}) {
         : `目标视觉相似度约 ${similarity}%，保留内容主题与部分氛围，但明显改变构图、配色和装饰细节。`;
     const copyLines = [`主标题「${copy.title || ''}」`, ...(copy.subtitle?.trim() ? [`副标题「${copy.subtitle.trim()}」`] : []), ...(copy.benefits?.length ? [`卖点「${copy.benefits.join('、')}」`] : [])].join('；');
     const subtitleRule = copy.subtitle?.trim() ? '' : '不要自行添加副标题、次级标题或额外文案。';
-    const prompt = `以参考图为内容灵感，重新创作一张完成度很高的中文竖版营销海报。${creativeDirection} ${similarityDirection} 不要沿用参考图的 Logo、水印、认证章或品牌标识。请在海报中自然排入以下文案：${copyLines}。${subtitleRule} 不要解释，只输出最终海报图片。`;
+    const prompt = `以参考图为内容灵感，重新创作一张完成度很高的中文竖版营销海报。${styleDirection} ${creativeDirection} ${similarityDirection} 不要沿用参考图的 Logo、水印、认证章或品牌标识。请在海报中自然排入以下文案：${copyLines}。${subtitleRule} 不要解释，只输出最终海报图片。`;
     const form = new FormData();
     form.append('image', new Blob([Buffer.from(match[2], 'base64')], { type: match[1] }), 'source.png');
     form.append('prompt', prompt);
@@ -528,3 +531,4 @@ createServer(async (req, res) => {
     res.end('Not found');
   }
 }).listen(port, () => console.log(`Original Maker is running at http://localhost:${port}`));
+
