@@ -98,6 +98,24 @@ if (recent.button) recent.button.addEventListener('click', event => { event.prev
 recent.close.addEventListener('click', () => { clearInterval(recentSyncTimer); recentSyncTimer=null; recent.dialog.close(); });
 recent.dialog.addEventListener('close', () => { clearInterval(recentSyncTimer); recentSyncTimer=null; });
 recent.list.addEventListener('click',async event=>{const button=event.target.closest('.project-download');if(!button)return;button.disabled=true;button.textContent='正在打包…';try{const tasks=getRecentTasks().filter(task=>task.projectId===button.dataset.projectId);await window.downloadProjectArchive(tasks[0]?.projectTitle,tasks);button.textContent='已开始下载'}catch(error){button.textContent=error.message||'打包失败'}finally{setTimeout(()=>{button.disabled=false;button.textContent='下载项目包'},1800)}});
+async function waitForGenerationTask(taskId, onWaiting=()=>{}){
+  let queryFailures=0;
+  while(true){
+    try{
+      const response=await fetch(`/api/tasks/${taskId}`);
+      const state=await response.json();
+      if(response.status===404)throw new Error(state.error||'后台任务已失效，请重新生成');
+      if(!response.ok){queryFailures+=1;onWaiting(`任务状态查询暂时不可用，正在自动重试（${queryFailures}）`);await new Promise(resolve=>setTimeout(resolve,Math.min(10000,queryFailures*1000)));continue;}
+      queryFailures=0;
+      if(state.status==='processing'){onWaiting(state.message||'灵客正在生成');await new Promise(resolve=>setTimeout(resolve,1500));continue;}
+      if(state.status==='completed'||state.status==='failed')return state;
+      onWaiting('后台仍在处理，正在继续获取状态');await new Promise(resolve=>setTimeout(resolve,1500));
+    }catch(error){
+      if(error.message?.includes('任务已失效'))throw error;
+      queryFailures+=1;onWaiting(`连接暂时中断，正在自动重试（${queryFailures}）`);await new Promise(resolve=>setTimeout(resolve,Math.min(10000,queryFailures*1000)));
+    }
+  }
+}
 ui.generate.addEventListener('click',async()=>{
   const file=ui.file.files[0];
   if(!file){toast('请先上传一张参考图片');return;}
@@ -113,9 +131,10 @@ ui.generate.addEventListener('click',async()=>{
     const imageData=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(file)});
     const response=await fetch('/api/rebuild',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({imageData,mode:ui.mode,similarity:Number(ui.similarity.value),imageRatio:ui.ratio.value,generationCount:Number(ui.count.value),copy:{title:ui.title.value,subtitle:ui.subtitle.value,benefits:ui.benefits.value.split('｜').map(x=>x.trim()).filter(Boolean),eyebrow:'小学同步学习资料'},layout:'bold'})});
     if(!response.ok) throw new Error((await response.json()).error || '后台暂未就绪');
-    if(response.status===202){const job=await response.json();updateRecentTask(taskId,{backendTaskId:job.taskId,message:'正在等待灵境返回图片'});let state;for(let attempt=0;attempt<120;attempt+=1){state=await fetch(`/api/tasks/${job.taskId}`).then(r=>r.json());if(state.status!=='processing')break;await new Promise(resolve=>setTimeout(resolve,1500));}if(!state||state.status==='processing')throw new Error('生成超时，请稍后重试');if(state.status==='failed')throw new Error(state.error||'生成失败');const images=state.images||[];if(!images.length)throw new Error('生成未返回图片');if(importedItem){importedItem.generationStatus='已完成';importedItem.resultUrl=images[0];}showResult(images[0]);updateRecentTask(taskId,{status:'已完成',progress:100,fileName:`已生成 ${images.length} 张`,url:images[0]});toast(`已生成 ${images.length} 张海报`);return;}
+    if(response.status===202){const job=await response.json();updateRecentTask(taskId,{backendTaskId:job.taskId,message:'正在等待灵客返回图片'});const state=await waitForGenerationTask(job.taskId,message=>updateRecentTask(taskId,{status:'生成中',message}));if(state.status==='failed')throw new Error(state.error||'生成失败');const images=state.images||[];if(!images.length)throw new Error('生成未返回图片');if(importedItem){importedItem.generationStatus='已完成';importedItem.resultUrl=images[0];}showResult(images[0]);updateRecentTask(taskId,{status:'已完成',progress:100,fileName:`已生成 ${images.length} 张`,url:images[0],message:''});toast(`已生成 ${images.length} 张海报`);return;}
     const contentType=response.headers.get('content-type')||'';if(contentType.includes('application/json')){const data=await response.json();const images=data.images||[];if(!images.length)throw new Error('灵境未返回图片');images.forEach((image,index)=>{const download=document.createElement('a');download.href=image;download.download=`海报重构-${Date.now()}-${index+1}.png`;download.click();});if(importedItem){importedItem.generationStatus='已完成';importedItem.resultUrl=images[0];}showResult(images[0]);updateRecentTask(taskId,{status:'已完成',fileName:`已生成 ${images.length} 张`,url:images[0]});toast(`已生成 ${images.length} 张海报，正在下载`);}else{const blob=await response.blob();const url=URL.createObjectURL(blob);const fileName=`海报重构-${new Date().toISOString().slice(0,10)}.png`;const download=document.createElement('a');download.href=url;download.download=fileName;download.click();if(importedItem){importedItem.generationStatus='已完成';importedItem.resultUrl=url;}showResult(url);updateRecentTask(taskId,{status:'已完成',fileName,url});toast('新海报已生成，正在下载 PNG 文件');}
   }catch(error){if(importedItem)importedItem.generationStatus='生成失败';updateRecentTask(taskId,{status:'生成失败'});toast(error.message || 'n8n 尚未完成连接配置');}
   finally{if(importedItem){window.refreshImportedGenerationUI?.();}else{ui.generate.classList.remove('loading');ui.generate.querySelector('span').textContent='生成新海报';ui.note.lastElementChild.textContent='准备就绪。预计生成 30–90 秒。';}}
 });
 setPreviewRatio();renderPreview();recoverCompletedTasks();
+[rtk] /!\ No hook installed — run `rtk init -g` for automatic token savings
