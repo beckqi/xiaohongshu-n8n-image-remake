@@ -116,27 +116,26 @@ function setQueuedImage(file) {
 function renderImportTabs() {
   const tabs = document.querySelector('#importTabs');
   tabs.hidden = !workspaceImportItems.length;
-  tabs.innerHTML = workspaceImportItems.map((item, index) => `<button class="import-tab ${index===activeImportIndex?'active':''}" data-index="${index}"><img src="${item.preview}" alt="带入图片 ${index+1}" /><span>图片 ${index+1}</span><small>${item.similarity ?? 60}% 相似${item.generationStatus ? ` · ${item.generationStatus}` : ''}</small></button>`).join('');
+  tabs.innerHTML = workspaceImportItems.map((item, index) => { const taskState = item.activeJobs ? `生成中 ×${item.activeJobs}` : item.generationStatus; return `<button class="import-tab ${index===activeImportIndex?'active':''}" data-index="${index}"><img src="${item.preview}" alt="带入图片 ${index+1}" /><span>图片 ${index+1}</span><small>${item.similarity ?? 60}% 相似${taskState ? ` · ${taskState}` : ''}</small></button>`; }).join('');
 }
 
 function activeImportItem() { return workspaceImportItems[activeImportIndex]; }
 function syncActiveGenerationUI() {
-  const running = activeImportItem()?.generationStatus === '生成中';
-  ui.generate.classList.toggle('loading', running);
-  ui.generate.querySelector('span').textContent = running ? 'AI 正在生成…' : '生成新海报';
-  ui.note.lastElementChild.textContent = running ? '该图片正在队列中生成；可切换到其他图片继续提交。' : '准备就绪。预计生成 30–90 秒。';
+  const running = Number(activeImportItem()?.activeJobs || 0);
+  if (!ui.generate.classList.contains('loading')) ui.generate.querySelector('span').textContent = window.getIdleGenerateLabel?.() || '确认文案并生成';
+  ui.note.lastElementChild.textContent = running ? `后台有 ${running} 个生成任务；仍可调整参数并再次提交。` : '准备就绪。预计生成 30–90 秒。';
 }
 window.getActiveImportedItem = activeImportItem;
 window.refreshImportedGenerationUI = () => { renderImportTabs(); syncActiveGenerationUI(); };
 
 function loadImportedItem(index) {
   const item = workspaceImportItems[index]; if (!item) return;
-  activeImportIndex = index; applyingImportedItem = true; setQueuedImage(item.file);
+  activeImportIndex = index; applyingImportedItem = true; setQueuedImage(item.file); window.setRecognitionMode?.(ui.recognitionMode);
   ui.title.value = item.title; ui.subtitle.value = ''; ui.benefits.value = item.description.slice(0, 180);
   ui.similarity.value = item.similarity ?? 60; updateSimilarityUI(); renderPreview(); renderImportTabs(); syncActiveGenerationUI();
   if (item.resultUrl) { ui.posterBg.src = item.resultUrl; ui.posterBg.hidden = false; ui.aiPlaceholder.hidden = true; }
-  else if (item.generationStatus === '生成中') { ui.aiPlaceholder.hidden = false; ui.aiPlaceholder.querySelector('strong').textContent = '该图片正在生成中'; }
-  applyingImportedItem = false; toast(`已切换到图片 ${index + 1}/${workspaceImportItems.length}，点击“生成新海报”才会生成`);
+  else if (item.activeJobs) { ui.aiPlaceholder.hidden = false; ui.aiPlaceholder.querySelector('strong').textContent = `该图片有 ${item.activeJobs} 个后台任务生成中`; }
+  applyingImportedItem = false; toast(`已切换到图片 ${index + 1}/${workspaceImportItems.length}，确认文案后再生成`);
 }
 
 window.syncActiveImportedSimilarity = similarity => {
