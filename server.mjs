@@ -94,22 +94,48 @@ async function ensureLingkeBalance(env) {
   if (Number(data.balance) <= 0) throw new Error('灵境算力余额不足，请先充值');
 }
 
+const providerDelay = ms => new Promise(resolve => setTimeout(resolve, ms));
+function lingkeFailure(message) {
+  const error = new Error(message);
+  error.isLingkeFailure = true;
+  return error;
+}
+
 async function waitLingkeTask(taskId, env, onProgress = () => {}) {
   const base = imageApiBase(env);
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    const response = await fetch(`${base}/skills/task-status?task_id=${encodeURIComponent(taskId)}`, { headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, signal: AbortSignal.timeout(30000) });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data?.error?.message || '灵境任务状态查询失败');
-    const state = String(data.state || data.status || '').toLowerCase();
-    const progress = data.progress ?? data.data?.progress ?? data.result?.progress;
-    onProgress({ progress: Number.isFinite(Number(progress)) ? Number(progress) : null, message: data.message || data.state || data.status || '灵境处理中' });
-    if (data.is_final || ['success', 'succeeded', 'completed', 'failed', 'error'].includes(state)) {
-      if (['success', 'succeeded', 'completed'].includes(state) || data.is_final && data.result_url) return data.result_url || data.result?.url || data.data?.result_url;
-      throw new Error(data.error?.message || data.message || '灵境生成失败');
+  let temporaryFailures = 0;
+  while (true) {
+    try {
+      const response = await fetch(`${base}/skills/task-status?task_id=${encodeURIComponent(taskId)}`, { headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, signal: AbortSignal.timeout(30000) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500) {
+          temporaryFailures += 1;
+          onProgress({ message: `灵客状态查询暂时不可用，正在自动重试（${temporaryFailures}）` });
+          await providerDelay(Math.min(15000, 3000 + temporaryFailures * 1000));
+          continue;
+        }
+        throw lingkeFailure(data?.error?.message || data?.message || `灵客任务状态查询失败（${response.status}）`);
+      }
+      temporaryFailures = 0;
+      const state = String(data.state || data.status || '').toLowerCase();
+      const progress = data.progress ?? data.data?.progress ?? data.result?.progress;
+      const resultUrl = data.result_url || data.result?.url || data.data?.result_url;
+      onProgress({ progress: Number.isFinite(Number(progress)) ? Number(progress) : null, message: data.message || data.state || data.status || '灵客处理中' });
+      if (['failed', 'error', 'canceled', 'cancelled', 'rejected'].includes(state)) {
+        throw lingkeFailure(data.error?.message || data.message || '灵客生成失败');
+      }
+      if ((['success', 'succeeded', 'completed'].includes(state) || data.is_final) && resultUrl) return resultUrl;
+      if (['success', 'succeeded', 'completed'].includes(state) || data.is_final) {
+        onProgress({ progress: 100, message: '灵客已生成完成，正在获取图片地址' });
+      }
+    } catch (error) {
+      if (error?.isLingkeFailure) throw error;
+      temporaryFailures += 1;
+      onProgress({ message: `与灵客的连接暂时中断，正在自动重试（${temporaryFailures}）` });
     }
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await providerDelay(Math.min(15000, 5000 + temporaryFailures * 1000));
   }
-  throw new Error('灵境生成超时，请稍后重试');
 }
 
 function readCookies(req) { return Object.fromEntries(String(req.headers.cookie || '').split(';').map(part => part.trim().split('=').map(decodeURIComponent)).filter(([key]) => key)); }
@@ -192,11 +218,12 @@ async function createYunwuBackground(payload, env, onProgress = () => {}) {
     form.append('size', outputSize);
     form.append('quality', 'auto');
     const endpoint = `${imageApiBase(env)}${env.YUNWU_IMAGE_EDIT_PATH || '/images/edits'}`;
-    const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form, signal: AbortSignal.timeout(300000) });
+    const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form });
     const data = await response.json();
     if (!response.ok) throw new Error(data?.error?.message || '灵境图像生成失败');
     const asyncTaskId = data?.task_id || data?.data?.task_id || data?.error?.task_id;
     if (asyncTaskId) {
+      onProgress({ providerTaskId: asyncTaskId, message: '灵客任务已创建，正在持续获取结果' });
       const resultUrl = await waitLingkeTask(asyncTaskId, env, onProgress);
       if (!resultUrl) throw new Error('灵境任务完成但没有返回图片地址');
       return resultUrl;
@@ -221,11 +248,12 @@ async function createYunwuBackground(payload, env, onProgress = () => {}) {
   form.append('size', '1024x1536');
   form.append('quality', 'auto');
   const endpoint = `${imageApiBase(env)}${env.YUNWU_IMAGE_EDIT_PATH || '/images/edits'}`;
-  const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form, signal: AbortSignal.timeout(300000) });
+  const response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json', authorization: `Bearer ${env.YUNWU_API_KEY}` }, body: form });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error?.message || '灵境图像生成失败');
   const asyncTaskId = data?.task_id || data?.data?.task_id || data?.error?.task_id;
   if (asyncTaskId) {
+    onProgress({ providerTaskId: asyncTaskId, message: '灵客任务已创建，正在持续获取结果' });
     const resultUrl = await waitLingkeTask(asyncTaskId, env, onProgress);
     if (!resultUrl) throw new Error('灵境任务完成但没有返回图片地址');
     return resultUrl;
@@ -254,7 +282,7 @@ async function washImportedCopy(payload, env) {
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${env.MIMO_API_KEY}` },
-    body: JSON.stringify({ model: env.MIMO_MODEL || 'mimo-v2.5', temperature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }), signal: AbortSignal.timeout(300000),
+    body: JSON.stringify({ model: env.MIMO_MODEL || 'mimo-v2.5', temperature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error?.message || data?.message || 'Mimo 文案生成失败');
@@ -500,3 +528,4 @@ createServer(async (req, res) => {
     res.end('Not found');
   }
 }).listen(port, () => console.log(`Original Maker is running at http://localhost:${port}`));
+[rtk] /!\ No hook installed — run `rtk init -g` for automatic token savings
