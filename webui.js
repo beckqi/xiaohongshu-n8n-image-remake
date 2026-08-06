@@ -137,4 +137,3 @@ ui.generate.addEventListener('click',async()=>{
   finally{if(importedItem){window.refreshImportedGenerationUI?.();}else{ui.generate.classList.remove('loading');ui.generate.querySelector('span').textContent='生成新海报';ui.note.lastElementChild.textContent='准备就绪。预计生成 30–90 秒。';}}
 });
 setPreviewRatio();renderPreview();recoverCompletedTasks();
-[rtk] /!\ No hook installed — run `rtk init -g` for automatic token savings
