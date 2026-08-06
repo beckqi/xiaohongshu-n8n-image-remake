@@ -43,6 +43,14 @@
           </label>
           <div class="quick-settings"><label class="field-label ratio-select">输出图片比例<select id="imageRatio"><option value="source">跟随原图</option><option value="portrait" selected>竖版 2:3</option><option value="square">正方形 1:1</option><option value="landscape">横版 3:2</option></select></label><label class="field-label ratio-select">生成数量<select id="generationCount"><option value="1" selected>1 张（推荐）</option><option value="2">2 张</option><option value="3">3 张</option><option value="4">4 张</option><option value="5">5 张</option><option value="6">6 张</option><option value="7">7 张</option><option value="8">8 张</option><option value="9">9 张</option><option value="10">10 张</option></select><small class="field-help">同批次提交，10 张耗时更长</small></label></div>
 
+          <section class="style-preset" aria-labelledby="stylePresetTitle">
+            <div class="style-preset-heading"><div><p class="number">STYLE PRESET</p><h2 id="stylePresetTitle">出图风格</h2></div><span>选中后强制套用</span></div>
+            <div class="style-presets" id="stylePresets">
+              <button class="style-preset-card selected" type="button" data-style-preset="education-xhs" aria-pressed="true"><span class="style-swatch education-swatch">Aa</span><span><strong>教培爆款长图</strong><small>手账贴纸、粗描边标题、绿橙撞色、信息卡片</small></span><b>✓</b></button>
+              <button class="style-preset-card" type="button" data-style-preset="none" aria-pressed="false"><span class="style-swatch none-swatch">✦</span><span><strong>不限定风格</strong><small>仅按重构方式和参考图生成</small></span><b>✓</b></button>
+            </div>
+          </section>
+
           <div class="section-heading mode-title"><div><p class="number">02</p><h2>选择重构方式</h2></div></div>
           <div class="modes" id="modes">
             <button class="mode-card selected" data-mode="layout"><span class="mode-icon">T</span><span><strong>保留文案</strong><small>文案不变，AI 自由构图与排版</small></span><em>推荐</em></button>
@@ -116,3 +124,4 @@
   <script src="link-import.js"></script>
 </body>
 </html>
+
