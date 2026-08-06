@@ -1,6 +1,6 @@
 const linkImport = {
   open: document.querySelector('#importLink'), dialog: document.querySelector('#importDialog'), close: document.querySelector('#closeImport'), url: document.querySelector('#importUrl'), fetch: document.querySelector('#fetchImport'),
-  result: document.querySelector('#importResult'), title: document.querySelector('#importTitle'), description: document.querySelector('#importDescription'), grid: document.querySelector('#importGrid'), queue: document.querySelector('#queueImport'), status: document.querySelector('#importStatus'),
+  result: document.querySelector('#importResult'), title: document.querySelector('#importTitle'), description: document.querySelector('#importDescription'), grid: document.querySelector('#importGrid'), downloadImages: document.querySelector('#downloadImportedImages'), queue: document.querySelector('#queueImport'), status: document.querySelector('#importStatus'),
   copySimilarity: document.querySelector('#copySimilarity'), copySimilarityValue: document.querySelector('#copySimilarityValue'), wash: document.querySelector('#washCopy'), washResult: document.querySelector('#washResult'), washedTitle: document.querySelector('#washedTitle'), washedDescription: document.querySelector('#washedDescription'), downloadCopy: document.querySelector('#downloadCopyTxt')
 };
 
@@ -59,6 +59,9 @@ async function pollCopyTask(taskId, copyTaskId, fallbackTitle, fallbackDescripti
 function drawImportedImages() {
   linkImport.grid.innerHTML = importedImages.map((url, index) => `<label class="import-image"><input type="checkbox" value="${index}" checked /><img src="/api/import-image?url=${encodeURIComponent(url)}" alt="导入图片 ${index + 1}" /><span>图片 ${index + 1}</span></label>`).join('');
 }
+function selectedImportedImages() {
+  return [...linkImport.grid.querySelectorAll('input:checked')].map(input => importedImages[Number(input.value)]).filter(Boolean);
+}
 
 linkImport.open.addEventListener('click', event => { event.preventDefault(); linkImport.dialog.showModal(); });
 linkImport.close.addEventListener('click', () => linkImport.dialog.close());
@@ -103,6 +106,26 @@ linkImport.fetch.addEventListener('click', async () => {
     importedImages = data.images; linkImport.title.value = data.title || ''; linkImport.description.value = data.description || ''; linkProject={id:`project-${Date.now()}`,title:data.title||`链接导入项目 ${new Date().toLocaleDateString('zh-CN')}`}; linkImport.washResult.hidden = true; drawImportedImages(); linkImport.result.hidden = false; setImportStatus(`已提取 ${importedImages.length} 张图片，勾选后可加入队列。`);
   } catch (error) { setImportStatus(error.message || '提取失败'); }
   finally { linkImport.fetch.classList.remove('loading'); }
+});
+
+linkImport.downloadImages.addEventListener('click', async () => {
+  const selected = selectedImportedImages();
+  if (!selected.length) return setImportStatus('请至少选择一张图片');
+  linkImport.downloadImages.disabled = true; linkImport.downloadImages.textContent = '正在打包图片…';
+  try {
+    const files = [];
+    for (let index = 0; index < selected.length; index++) {
+      setImportStatus(`正在下载识别图片 ${index + 1}/${selected.length}…`);
+      const response = await fetch(`/api/import-image?url=${encodeURIComponent(selected[index])}`);
+      if (!response.ok) throw new Error(`第 ${index + 1} 张图片下载失败`);
+      const type = (response.headers.get('content-type') || '').split(';')[0];
+      const extension = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg';
+      files.push({ name: `识别原图-${String(index + 1).padStart(2, '0')}.${extension}`, data: new Uint8Array(await response.arrayBuffer()) });
+    }
+    window.downloadFilesArchive?.(linkProject?.title || linkImport.title.value.trim() || '链接识别图片', files);
+    setImportStatus(`已将 ${files.length} 张识别图片打包下载。`);
+  } catch (error) { setImportStatus(error.message || '识别图片下载失败'); }
+  finally { linkImport.downloadImages.disabled = false; linkImport.downloadImages.textContent = '下载已选图片'; }
 });
 
 function setQueuedImage(file) {
@@ -161,7 +184,7 @@ async function waitForGeneration() {
 }
 
 linkImport.queue.addEventListener('click', async () => {
-  const selected = [...linkImport.grid.querySelectorAll('input:checked')].map(input => importedImages[Number(input.value)]).filter(Boolean);
+  const selected = selectedImportedImages();
   if (!selected.length) return setImportStatus('请至少选择一张图片');
   linkImport.queue.classList.add('loading');
   const title = linkImport.title.value.trim(); const description = linkImport.description.value.trim();
