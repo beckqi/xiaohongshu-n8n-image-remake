@@ -13,10 +13,12 @@ const imageWorkerUrl = process.env.IMAGE_WORKER_URL || 'http://127.0.0.1:8001';
 const usersPath = join(root, 'data', 'users.json');
 const historyDirectory = join(root, 'data', 'history');
 const taskStatePath = join(root, 'data', 'generation-tasks.json');
+const recentTasksPath = join(root, 'data', 'recent-tasks.json');
 const sessions = new Map();
 const loginAttempts = new Map();
 const generationTasks = new Map();
 let taskWriteQueue = Promise.resolve();
+let recentTaskWriteQueue = Promise.resolve();
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8' };
 
 function persistGenerationTasks() {
@@ -45,6 +47,40 @@ async function restoreGenerationTasks() {
 }
 
 await restoreGenerationTasks();
+
+async function loadRecentTaskStore() {
+  try {
+    const store = JSON.parse(await readFile(recentTasksPath, 'utf8'));
+    return store && !Array.isArray(store) && typeof store === 'object' ? store : {};
+  } catch { return {}; }
+}
+
+function normalizeRecentTask(task) {
+  if (!task || typeof task !== 'object' || !String(task.id || '').trim()) return null;
+  const clean = JSON.parse(JSON.stringify(task));
+  clean.id = String(clean.id).slice(0, 160);
+  clean.updatedAt = Number(clean.updatedAt || Date.now());
+  return clean;
+}
+
+async function mergeRecentTasks(username, incomingTasks) {
+  const userKey = String(username || '').trim().toLowerCase();
+  recentTaskWriteQueue = recentTaskWriteQueue.catch(() => {}).then(async () => {
+    const store = await loadRecentTaskStore();
+    const existing = Array.isArray(store[userKey]) ? store[userKey] : [];
+    const merged = new Map(existing.map(task => [String(task.id), task]));
+    for (const task of incomingTasks.map(normalizeRecentTask).filter(Boolean)) {
+      const previous = merged.get(task.id);
+      if (!previous || Number(task.updatedAt || 0) >= Number(previous.updatedAt || 0)) merged.set(task.id, task);
+    }
+    const tasks = [...merged.values()].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)).slice(0, 200);
+    store[userKey] = tasks;
+    await mkdir(dirname(recentTasksPath), { recursive: true });
+    await writeFile(recentTasksPath, JSON.stringify(store, null, 2), 'utf8');
+    return tasks;
+  });
+  return recentTaskWriteQueue;
+}
 
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -396,6 +432,19 @@ createServer(async (req, res) => {
   if (!currentUser(req)) {
     if (url.pathname.startsWith('/api/')) return json(res, 401, { error: '登录已失效，请重新登录' });
     if (!publicFiles.has(url.pathname)) { res.writeHead(302, { location: '/login.html' }); return res.end(); }
+  }
+  if (req.method === 'GET' && url.pathname === '/api/recent-tasks') {
+    const user = currentUser(req);
+    const store = await loadRecentTaskStore();
+    return json(res, 200, { tasks: Array.isArray(store[user.username.toLowerCase()]) ? store[user.username.toLowerCase()] : [] });
+  }
+  if (req.method === 'PUT' && url.pathname === '/api/recent-tasks') {
+    try {
+      const user = currentUser(req);
+      const payload = JSON.parse((await readBody(req, 1024 * 1024)).toString('utf8'));
+      const incomingTasks = Array.isArray(payload.tasks) ? payload.tasks.slice(0, 200) : [];
+      return json(res, 200, { tasks: await mergeRecentTasks(user.username, incomingTasks) });
+    } catch (error) { return json(res, 400, { error: error.message || '历史记录保存失败' }); }
   }
   if (req.method === 'GET' && url.pathname.startsWith('/api/history/')) {
     const name = url.pathname.slice('/api/history/'.length);

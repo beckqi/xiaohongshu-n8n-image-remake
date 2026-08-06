@@ -1,7 +1,23 @@
+const RECENT_TASK_KEY = 'poster-remake-recent';
+let persistTimer = null;
+const taskTime = task => Number(task?.updatedAt || String(task?.id || '').match(/\d{13}/)?.[0] || 0);
 const readTasks = () => {
-  try { return JSON.parse(localStorage.getItem('poster-remake-recent') || '[]'); } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(RECENT_TASK_KEY) || '[]').slice(0, 200); } catch { return []; }
 };
-const writeTasks = next => localStorage.setItem('poster-remake-recent', JSON.stringify(next));
+const writeTasks = next => {
+  const tasks = next.slice(0, 200);
+  localStorage.setItem(RECENT_TASK_KEY, JSON.stringify(tasks));
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => fetch('/api/recent-tasks', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tasks }), keepalive: true }).catch(() => {}), 250);
+};
+async function syncSavedTasks() {
+  try {
+    const response = await fetch('/api/recent-tasks'); if (!response.ok) return;
+    const remote = (await response.json()).tasks || []; const merged = new Map();
+    [...remote, ...readTasks()].forEach(task => { if (!task?.id) return; const previous = merged.get(task.id); if (!previous || taskTime(task) >= taskTime(previous)) merged.set(task.id, task); });
+    writeTasks([...merged.values()].sort((a, b) => taskTime(b) - taskTime(a)).slice(0, 200)); render();
+  } catch { /* 离线时继续使用浏览器缓存 */ }
+}
 const list = document.querySelector('#projectList');
 let activeDialog = null;
 let refreshTimer = null;
@@ -85,3 +101,4 @@ function openProject(id) {
 list.onclick = event => { const card = event.target.closest('.project-card'); if (card) openProject(card.dataset.id); };
 window.addEventListener('storage', event => { if (event.key === 'poster-remake-recent') { render(); if (activeDialog) { const project = groups().find(item => item.id === activeDialog.dataset?.id); if (project) renderDialog(project); } } });
 render();
+syncSavedTasks();
