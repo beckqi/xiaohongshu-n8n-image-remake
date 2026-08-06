@@ -210,9 +210,13 @@ async function createYunwuBackground(payload, env, onProgress = () => {}) {
       : similarity <= 35
         ? `目标视觉相似度约 ${similarity}%，大胆改变场景、主体、色彩、构图和视觉语言，仅保留内容主题。`
         : `目标视觉相似度约 ${similarity}%，保留内容主题与部分氛围，但明显改变构图、配色和装饰细节。`;
-    const copyLines = [`主标题「${copy.title || ''}」`, ...(copy.subtitle?.trim() ? [`副标题「${copy.subtitle.trim()}」`] : []), ...(copy.benefits?.length ? [`卖点「${copy.benefits.join('、')}」`] : [])].join('；');
+    const directMode = payload.recognitionMode === 'direct';
+    const copyLines = [`文档主标题「${copy.title || ''}」`, ...(copy.subtitle?.trim() ? [`副标题「${copy.subtitle.trim()}」`] : []), ...(copy.benefits?.length ? [`图片完整文案（按顺序全部排入）「${copy.benefits.join('；')}」`] : [])].join('；');
     const subtitleRule = copy.subtitle?.trim() ? '' : '不要自行添加副标题、次级标题或额外文案。';
-    const prompt = `以参考图为内容灵感，重新创作一张完成度很高的中文竖版营销海报。${styleDirection} ${creativeDirection} ${similarityDirection} 不要沿用参考图的 Logo、水印、认证章或品牌标识。请在海报中自然排入以下文案：${copyLines}。${subtitleRule} 不要解释，只输出最终海报图片。`;
+    const copyDirection = directMode
+      ? '不要依赖外部 OCR 或预先整理的文案。请直接仔细阅读参考图，自行理解其中的有效正文、标题层级和画面主题，再完成整张海报；允许你根据画面可读性自主组织文字层级，但不得沿用原图的 Logo、水印、认证章、账号名或品牌标识。'
+      : `以下内容已经由用户逐项确认，必须逐字使用，不得改写、删减、补充或替换任何字词：${copyLines}。请将这些确认文案自然排入最终画面。${subtitleRule}`;
+    const prompt = `以参考图为内容灵感，重新创作一张完成度很高的中文营销海报。${styleDirection} ${creativeDirection} ${similarityDirection} ${copyDirection} 不要解释，只输出最终海报图片。`;
     const form = new FormData();
     form.append('image', new Blob([Buffer.from(match[2], 'base64')], { type: match[1] }), 'source.png');
     form.append('prompt', prompt);
@@ -280,12 +284,7 @@ async function washImportedCopy(payload, env) {
       : similarity >= 40
         ? '保留主题及全部事实卖点，用全新的叙述结构和表达方式改写，使读感明显不同。'
         : '只保留真实主题和事实卖点，重新设计标题与正文的表达角度和节奏。';
-  const prompt = `你是资深小红书笔记文案编辑。用户拥有以下内容的使用权，需要生成一个可直接发布的“小红书风格”改写版本。${direction} 标题要自然、有具体信息点或轻钩子，不要标题党；正文使用轻松口语化的中文，开头先点明读者收益，随后用短段落、换行和少量 emoji（每段最多 1 个）提升可读性；必要时以「适合谁」「包含什么」「怎么用」这类小标题或清单组织内容；结尾给出自然、不过度营销的互动或行动引导。保留原文的事实、对象、年级、版本、资料内容等关键信息。不得添加原文没有的价格、承诺、资质、数据、稀缺性或夸大性结论；不要写“爆款”“闭眼入”“私信我”等强营销话术；不得提及洗稿、相似度或 AI。输出严格 JSON，不要 Markdown：{"title":"...","description":"..."}。\n原始标题：${title || '（无）'}\n原始正文：${description || '（无）'}`;
-  const endpoint = `${env.MIMO_BASE_URL.replace(/\/$/, '')}/chat/completions`;
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${env.MIMO_API_KEY}` },
-    body: JSON.stringify({ model: env.MIMO_MODEL || 'mimo-v2.5', temperature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }),
+  const prompt = `你是资深小红书笔记文案编辑。用户拥有以下内容的使用权，需要生成一个可直接发布的“小红书风格”改写版本。${direction} 标题要自然、有具体信息点或轻钩子，不要标题党…296 tokens truncated…ature: Math.max(0.15, Math.min(0.95, (100 - similarity) / 100 + 0.2)), messages: [{ role: 'system', content: '你只返回合法 JSON。' }, { role: 'user', content: prompt }] }),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error?.message || data?.message || 'Mimo 文案生成失败');
@@ -294,6 +293,41 @@ async function washImportedCopy(payload, env) {
   try { parsed = JSON.parse(content); }
   catch { throw new Error('Mimo 返回格式异常，请重新生成'); }
   return { title: String(parsed.title || title).trim(), description: String(parsed.description || description).trim(), similarity };
+}
+
+async function recognizePosterWithMimo(payload, env) {
+  const imageData = String(payload.imageData || '');
+  if (!/^data:image\/[\w.+-]+;base64,/.test(imageData)) throw new Error('请上传有效图片');
+  if (!env.MIMO_API_KEY || !env.MIMO_BASE_URL) throw new Error('请先在 API 设置中填写小米 Mimo API Key');
+  const recognitionMode = payload.recognitionMode === 'fast' ? 'fast' : 'deep';
+  const prompt = `完整阅读这张中文海报上的所有可见文字，并按信息层级整理。不要总结、改写、缩写、评价，不要把内容判断为营销卖点，也不要合并掉独立信息。返回严格 JSON：{"title":"文档主标题","subtitle":"副标题，没有则为空字符串","content":["图片中的其余完整文字，按原有阅读顺序逐条记录"]}。必须保留年份、版本、年级、科目、册次、教材版本、资料名称、数字和英文缩写；除 Logo、水印、账号名、平台标识、官方认证章外，不得遗漏任何正文内容。title、subtitle 中已经出现的文字不要在 content 中重复。`;
+  const endpoint = `${env.MIMO_BASE_URL.replace(/\/$/, '')}/chat/completions`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${env.MIMO_API_KEY}` },
+    body: JSON.stringify({
+      model: env.MIMO_MODEL || 'mimo-v2.5',
+      thinking: { type: recognitionMode === 'deep' ? 'enabled' : 'disabled' },
+      max_completion_tokens: recognitionMode === 'deep' ? 4096 : 2048,
+      response_format: { type: 'json_object' },
+      temperature: 0.1,
+      messages: [{ role: 'system', content: '你是中文海报文档化识别助手。逐区域仔细检查图片，保证文字完整，只返回合法 JSON。' }, { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: imageData, detail: 'high' } }] }],
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error?.message || data?.message || 'Mimo 图片识别失败');
+  const rawContent = data?.choices?.[0]?.message?.content;
+  const content = (Array.isArray(rawContent) ? rawContent.map(part => part?.text || '').join('') : String(rawContent || '')).replace(/^```json\s*|\s*```$/g, '').trim();
+  const jsonText = content.match(/\{[\s\S]*\}/)?.[0] || content;
+  let parsed;
+  try { parsed = JSON.parse(jsonText); }
+  catch { throw new Error('Mimo 已读图，但返回格式异常，请重新识别'); }
+  return {
+    title: String(parsed.title || '').trim(),
+    subtitle: String(parsed.subtitle || '').trim(),
+    content: (Array.isArray(parsed.content) ? parsed.content : Array.isArray(parsed.benefits) ? parsed.benefits : []).map(item => String(item).trim()).filter(Boolean).slice(0, 40),
+    recognitionMode,
+  };
 }
 
 async function runGeneration(payload, onProgress = () => {}) {
@@ -432,6 +466,12 @@ createServer(async (req, res) => {
       return res.end(data);
     } catch (error) { return json(res, 502, { error: error.message || '图片下载失败' }); }
   }
+  if (req.method === 'POST' && url.pathname === '/api/mimo-recognize') {
+    try {
+      const payload = JSON.parse((await readBody(req)).toString('utf8'));
+      return json(res, 200, await recognizePosterWithMimo(payload, await loadRuntimeEnv()));
+    } catch (error) { return json(res, 502, { error: error.message || 'Mimo 图片识别失败' }); }
+  }
   if (req.method === 'POST' && url.pathname === '/api/ocr') {
     try {
       const payload = JSON.parse((await readBody(req)).toString('utf8'));
@@ -531,4 +571,3 @@ createServer(async (req, res) => {
     res.end('Not found');
   }
 }).listen(port, () => console.log(`Original Maker is running at http://localhost:${port}`));
-
